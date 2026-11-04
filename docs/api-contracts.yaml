@@ -1,0 +1,345 @@
+openapi: 3.0.3
+info:
+  title: Campus Navigation System API
+  version: 1.0.0
+  description: |
+    Contract shared by the whole team (freeze as git tag `api-v1.0`). Public endpoints need no login.
+    Admin endpoints need the `campus_nav_token` httpOnly cookie set by /auth/login (or `Authorization: Bearer <jwt>`).
+    The backend enforces roles on every endpoint; the frontend only mirrors them (e.g. `canRestore`).
+    Nullable booleans: `null` = "Not verified" and must never be shown as "No".
+    Editable entities carry `versionNumber`; updates must send `expectedVersion` (stale -> 409 VERSION_CONFLICT).
+servers: [{ url: /api }]
+tags: [{ name: Public }, { name: Auth }, { name: Admin-Locations }, { name: Admin-Routes }, { name: Super-Admin }]
+components:
+  securitySchemes:
+    cookieAuth: { type: apiKey, in: cookie, name: campus_nav_token }
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  parameters:
+    Id: { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    VersionN: { name: n, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    Limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+    Offset: { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+  responses:
+    Error400: { description: Validation / bad request, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    Error401: { description: Not logged in, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    Error403: { description: Role not allowed, or PASSWORD_CHANGE_REQUIRED, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    Error404: { description: Not found, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    Error409: { description: Conflict (VERSION_CONFLICT, NEARBY_LOCATION, DUPLICATE_NAME, INVALID_STATE, ...), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, example: VERSION_CONFLICT }
+            message: { type: string }
+            details: { description: Field errors, conflict data, nearby locations, etc. }
+    Location:
+      type: object
+      properties:
+        locationId: { type: integer }
+        name: { type: string }
+        description: { type: string }
+        latitude: { type: number }
+        longitude: { type: number }
+        imageUrl: { type: string, nullable: true }
+        status: { type: string, enum: [active, inactive] }
+        versionNumber: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    NearestLocation:
+      allOf: [{ $ref: '#/components/schemas/Location' }, { type: object, properties: { distanceMeters: { type: number } } }]
+    Point:
+      type: object
+      required: [latitude, longitude]
+      properties:
+        sequenceNumber: { type: integer, minimum: 1, description: "Optional on input. In batch uploads it makes retries idempotent." }
+        latitude: { type: number, minimum: -90, maximum: 90 }
+        longitude: { type: number, minimum: -180, maximum: 180 }
+        accuracy: { type: number, nullable: true, minimum: 0 }
+        recordedAt: { type: string, format: date-time, nullable: true }
+    Waypoint:
+      type: object
+      properties:
+        sequenceNumber: { type: integer }
+        locationId: { type: integer }
+        name: { type: string }
+        isActive: { type: boolean, description: "false -> show a plain name label only (no details/Navigate)" }
+    Route:
+      type: object
+      properties:
+        routeId: { type: integer }
+        sourceLocationId: { type: integer }
+        destinationLocationId: { type: integer }
+        routeName: { type: string }
+        directionality: { type: string, enum: [one_way, bidirectional] }
+        hasStairs: { type: boolean, nullable: true }
+        hasRamp: { type: boolean, nullable: true }
+        isCovered: { type: boolean, nullable: true }
+        notes: { type: string, nullable: true }
+        status: { type: string, enum: [draft, active, inactive] }
+        versionNumber: { type: integer }
+        reversed: { type: boolean, description: "true when a bidirectional route is returned in reverse (points/waypoints reversed, endpoints swapped)" }
+        distanceMeters: { type: integer, nullable: true, description: "PostGIS length of the recorded path" }
+        points: { type: array, items: { $ref: '#/components/schemas/Point' } }
+        waypoints: { type: array, items: { $ref: '#/components/schemas/Waypoint' } }
+    RouteInput:
+      type: object
+      required: [sourceLocationId, destinationLocationId, routeName, directionality]
+      properties:
+        sourceLocationId: { type: integer }
+        destinationLocationId: { type: integer }
+        routeName: { type: string, maxLength: 150 }
+        directionality: { type: string, enum: [one_way, bidirectional] }
+        hasStairs: { type: boolean, nullable: true }
+        hasRamp: { type: boolean, nullable: true }
+        isCovered: { type: boolean, nullable: true }
+        notes: { type: string, nullable: true, maxLength: 2000 }
+        points: { type: array, maxItems: 20000, items: { $ref: '#/components/schemas/Point' } }
+        waypointLocationIds: { type: array, maxItems: 50, items: { type: integer }, description: "Ordered; only registered ACTIVE locations; no duplicates" }
+    ExpectedVersion:
+      type: object
+      required: [expectedVersion]
+      properties: { expectedVersion: { type: integer, minimum: 1 } }
+    Restore:
+      type: object
+      required: [versionNumber, expectedVersion]
+      properties: { versionNumber: { type: integer, minimum: 1 }, expectedVersion: { type: integer, minimum: 1 } }
+    VersionList:
+      type: object
+      properties:
+        total: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              versionNumber: { type: integer }
+              modifiedAt: { type: string, format: date-time }
+              changeDescription: { type: string }
+              modifiedBy: { type: integer, nullable: true }
+              modifiedByName: { type: string, nullable: true }
+    VersionDetail:
+      type: object
+      properties:
+        versionNumber: { type: integer }
+        modifiedAt: { type: string, format: date-time }
+        changeDescription: { type: string }
+        snapshot: { type: object, description: "Complete snapshot (routes include metadata + ordered points + ordered waypoints)" }
+    VersionCompare:
+      type: object
+      properties:
+        from: { type: integer }
+        to: { type: integer }
+        changes:
+          type: array
+          items: { type: object, properties: { field: { type: string }, from: {}, to: {} } }
+    User:
+      type: object
+      properties:
+        userId: { type: integer }
+        name: { type: string }
+        email: { type: string }
+        role: { type: string, enum: [admin, super_admin] }
+        forcePasswordChange: { type: boolean }
+        canRestore: { type: boolean, description: "true only for super_admin; drives the Restore button" }
+paths:
+  /health:
+    get: { tags: [Public], summary: Liveness + database check, responses: { '200': { description: ok }, '503': { description: database unavailable } } }
+  /locations:
+    get:
+      tags: [Public]
+      summary: All active locations (feeds the start/destination dropdowns)
+      responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Location' } } } } } } } }
+  /locations/search:
+    get:
+      tags: [Public]
+      summary: Case-insensitive partial-name search (prefix matches first)
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 25, default: 10 } }
+      responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Location' } } } } } } } }
+  /locations/nearest:
+    get:
+      tags: [Public]
+      summary: Nearest active buildings to a GPS fix (PostGIS KNN)
+      parameters:
+        - { name: lat, in: query, required: true, schema: { type: number } }
+        - { name: lng, in: query, required: true, schema: { type: number } }
+        - { name: limit, in: query, schema: { type: integer, default: 3, maximum: 10 } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/NearestLocation' } } } } } } }
+        '400': { $ref: '#/components/responses/Error400' }
+  /locations/{id}:
+    get:
+      tags: [Public]
+      summary: One active location
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Location' } } } }, '404': { $ref: '#/components/responses/Error404' } }
+  /routes:
+    get:
+      tags: [Public]
+      summary: Eligible recorded alternatives from `from` to `to`
+      description: Exact match plus verified bidirectional reverse match. Only status=active routes whose two endpoint locations are active. Sorted stairs=false, ramp=true, covered=true, routeId. Empty list + message when none.
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: integer } }
+        - { name: to, in: query, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Route' } }, message: { type: string } } } } } }
+        '400': { $ref: '#/components/responses/Error400' }
+  /offline/snapshot:
+    get:
+      tags: [Public]
+      summary: All active locations + all eligible routes (forward direction) for the offline IndexedDB cache
+      responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { generatedAt: { type: string, format: date-time }, locations: { type: array, items: { $ref: '#/components/schemas/Location' } }, routes: { type: array, items: { $ref: '#/components/schemas/Route' } } } } } } } }
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Administrator login (no public signup exists)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [email, password], properties: { email: { type: string }, password: { type: string } } } } } }
+      responses:
+        '200': { description: Sets httpOnly cookie, content: { application/json: { schema: { type: object, properties: { user: { $ref: '#/components/schemas/User' } } } } } }
+        '401': { $ref: '#/components/responses/Error401' }
+        '429': { description: Too many attempts }
+  /auth/logout: { post: { tags: [Auth], summary: Clear session cookie, responses: { '200': { description: OK } } } }
+  /auth/me:
+    get:
+      tags: [Auth]
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      summary: Current user
+      responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { user: { $ref: '#/components/schemas/User' } } } } } }, '401': { $ref: '#/components/responses/Error401' } }
+  /auth/change-password:
+    post:
+      tags: [Auth]
+      security: [{ cookieAuth: [] }]
+      summary: Change own password (clears the forced-change flag)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [currentPassword, newPassword], properties: { currentPassword: { type: string }, newPassword: { type: string, minLength: 10 } } } } } }
+      responses: { '200': { description: OK }, '400': { $ref: '#/components/responses/Error400' }, '401': { $ref: '#/components/responses/Error401' } }
+  /auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Request reset e-mail (always 200; never reveals whether the account exists)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [email], properties: { email: { type: string } } } } } }
+      responses: { '200': { description: OK } }
+  /auth/reset-password:
+    post:
+      tags: [Auth]
+      summary: Set a new password with a single-use token (30 min)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [token, newPassword], properties: { token: { type: string }, newPassword: { type: string } } } } } }
+      responses: { '200': { description: OK }, '400': { $ref: '#/components/responses/Error400' } }
+  /admin/locations:
+    get:
+      tags: [Admin-Locations]
+      security: [{ cookieAuth: [] }]
+      summary: All locations incl. inactive (Admin, Super Admin)
+      parameters: [{ name: status, in: query, schema: { type: string, enum: [active, inactive] } }, { name: q, in: query, schema: { type: string } }]
+      responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Location' } } } } } } }, '401': { $ref: '#/components/responses/Error401' }, '403': { $ref: '#/components/responses/Error403' } }
+    post:
+      tags: [Admin-Locations]
+      security: [{ cookieAuth: [] }]
+      summary: Register a location. 409 NEARBY_LOCATION if another active location is within the radius unless confirmNearby=true.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [name, latitude, longitude], properties: { name: { type: string }, description: { type: string }, latitude: { type: number }, longitude: { type: number }, imageUrl: { type: string, nullable: true }, confirmNearby: { type: boolean } } } } } }
+      responses: { '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Location' } } } }, '400': { $ref: '#/components/responses/Error400' }, '409': { $ref: '#/components/responses/Error409' } }
+  /admin/locations/nearby:
+    get:
+      tags: [Admin-Locations]
+      security: [{ cookieAuth: [] }]
+      summary: Is this position already registered? (PostGIS ST_DWithin)
+      parameters: [{ name: lat, in: query, required: true, schema: { type: number } }, { name: lng, in: query, required: true, schema: { type: number } }]
+      responses: { '200': { description: OK } }
+  /admin/locations/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get: { tags: [Admin-Locations], security: [{ cookieAuth: [] }], summary: One location (any status), responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Location' } } } }, '404': { $ref: '#/components/responses/Error404' } } }
+    put:
+      tags: [Admin-Locations]
+      security: [{ cookieAuth: [] }]
+      summary: Edit / correct coordinates / change image (requires expectedVersion)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [expectedVersion], properties: { expectedVersion: { type: integer }, name: { type: string }, description: { type: string }, latitude: { type: number }, longitude: { type: number }, imageUrl: { type: string, nullable: true }, confirmNearby: { type: boolean } } } } } }
+      responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Location' } } } }, '409': { $ref: '#/components/responses/Error409' } }
+  /admin/locations/{id}/deactivate:
+    post: { tags: [Admin-Locations], security: [{ cookieAuth: [] }], parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ExpectedVersion' } } } }, responses: { '200': { description: OK }, '409': { $ref: '#/components/responses/Error409' } } }
+  /admin/locations/{id}/reactivate:
+    post: { tags: [Admin-Locations], security: [{ cookieAuth: [] }], parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ExpectedVersion' } } } }, responses: { '200': { description: OK }, '409': { $ref: '#/components/responses/Error409' } } }
+  /admin/uploads/image:
+    post:
+      tags: [Admin-Locations]
+      security: [{ cookieAuth: [] }]
+      summary: Upload a JPEG/PNG/WebP (content-checked, size-limited); returns the URL to store
+      requestBody: { required: true, content: { multipart/form-data: { schema: { type: object, properties: { image: { type: string, format: binary } } } } } }
+      responses: { '201': { description: Created, content: { application/json: { schema: { type: object, properties: { url: { type: string }, mime: { type: string }, size: { type: integer } } } } } }, '400': { $ref: '#/components/responses/Error400' }, '413': { description: Too large } }
+  /admin/locations/{id}/versions:
+    get: { tags: [Admin-Locations], security: [{ cookieAuth: [] }], summary: Paginated history, parameters: [{ $ref: '#/components/parameters/Id' }, { $ref: '#/components/parameters/Limit' }, { $ref: '#/components/parameters/Offset' }], responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/VersionList' } } } } } }
+  /admin/locations/{id}/versions/compare:
+    get: { tags: [Admin-Locations], security: [{ cookieAuth: [] }], summary: Field changes between two versions, parameters: [{ $ref: '#/components/parameters/Id' }, { name: from, in: query, required: true, schema: { type: integer } }, { name: to, in: query, required: true, schema: { type: integer } }], responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/VersionCompare' } } } } } }
+  /admin/locations/{id}/versions/{n}:
+    get: { tags: [Admin-Locations], security: [{ cookieAuth: [] }], summary: One full snapshot, parameters: [{ $ref: '#/components/parameters/Id' }, { $ref: '#/components/parameters/VersionN' }], responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/VersionDetail' } } } }, '404': { $ref: '#/components/responses/Error404' } } }
+  /admin/locations/{id}/restore:
+    post: { tags: [Super-Admin], security: [{ cookieAuth: [] }], summary: Restore a snapshot as a NEW version (Super Admin only), parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Restore' } } } }, responses: { '200': { description: OK }, '403': { $ref: '#/components/responses/Error403' }, '409': { $ref: '#/components/responses/Error409' } } }
+  /admin/routes:
+    get:
+      tags: [Admin-Routes]
+      security: [{ cookieAuth: [] }]
+      summary: List routes of any status (paginated)
+      parameters: [{ name: status, in: query, schema: { type: string, enum: [draft, active, inactive] } }, { name: sourceLocationId, in: query, schema: { type: integer } }, { name: destinationLocationId, in: query, schema: { type: integer } }, { $ref: '#/components/parameters/Limit' }, { $ref: '#/components/parameters/Offset' }]
+      responses: { '200': { description: OK } }
+    post:
+      tags: [Admin-Routes]
+      security: [{ cookieAuth: [] }]
+      summary: Create a DRAFT (points optional; usually empty and filled by live recording)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RouteInput' } } } }
+      responses: { '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Route' } } } }, '400': { $ref: '#/components/responses/Error400' } }
+  /admin/routes/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get: { tags: [Admin-Routes], security: [{ cookieAuth: [] }], summary: Full route incl. geometry (any status), responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Route' } } } }, '404': { $ref: '#/components/responses/Error404' } } }
+    put:
+      tags: [Admin-Routes]
+      security: [{ cookieAuth: [] }]
+      summary: Edit metadata/waypoints/geometry (expectedVersion required; `points`, if sent, REPLACES the geometry)
+      requestBody: { required: true, content: { application/json: { schema: { allOf: [{ $ref: '#/components/schemas/ExpectedVersion' }, { type: object, properties: { sourceLocationId: { type: integer }, destinationLocationId: { type: integer }, routeName: { type: string }, directionality: { type: string }, hasStairs: { type: boolean, nullable: true }, hasRamp: { type: boolean, nullable: true }, isCovered: { type: boolean, nullable: true }, notes: { type: string, nullable: true }, points: { type: array, items: { $ref: '#/components/schemas/Point' } }, waypointLocationIds: { type: array, items: { type: integer } } } }] } } } }
+      responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Route' } } } }, '409': { $ref: '#/components/responses/Error409' } }
+    delete: { tags: [Admin-Routes], security: [{ cookieAuth: [] }], summary: Discard a DRAFT only (published routes can only be deactivated), responses: { '200': { description: OK }, '409': { $ref: '#/components/responses/Error409' } } }
+  /admin/routes/{id}/points:
+    post:
+      tags: [Admin-Routes]
+      security: [{ cookieAuth: [] }]
+      summary: Append a batch of live GPS points to a DRAFT (max 500; not versioned per batch; idempotent when sequenceNumber is sent)
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [points], properties: { points: { type: array, minItems: 1, maxItems: 500, items: { $ref: '#/components/schemas/Point' } } } } } } }
+      responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { routeId: { type: integer }, received: { type: integer }, inserted: { type: integer }, totalPoints: { type: integer } } } } } }, '409': { $ref: '#/components/responses/Error409' } }
+  /admin/routes/{id}/publish:
+    post: { tags: [Admin-Routes], security: [{ cookieAuth: [] }], summary: Draft -> active (needs >= 2 points; endpoints AND every waypoint must be active), parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ExpectedVersion' } } } }, responses: { '200': { description: OK }, '400': { $ref: '#/components/responses/Error400' }, '409': { $ref: '#/components/responses/Error409' } } }
+  /admin/routes/{id}/deactivate:
+    post: { tags: [Admin-Routes], security: [{ cookieAuth: [] }], summary: Active -> inactive, parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ExpectedVersion' } } } }, responses: { '200': { description: OK }, '409': { $ref: '#/components/responses/Error409' } } }
+  /admin/routes/{id}/reactivate:
+    post: { tags: [Admin-Routes], security: [{ cookieAuth: [] }], summary: Inactive -> active, parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ExpectedVersion' } } } }, responses: { '200': { description: OK }, '409': { $ref: '#/components/responses/Error409' } } }
+  /admin/routes/{id}/versions:
+    get: { tags: [Admin-Routes], security: [{ cookieAuth: [] }], summary: Paginated history, parameters: [{ $ref: '#/components/parameters/Id' }, { $ref: '#/components/parameters/Limit' }, { $ref: '#/components/parameters/Offset' }], responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/VersionList' } } } } } }
+  /admin/routes/{id}/versions/compare:
+    get: { tags: [Admin-Routes], security: [{ cookieAuth: [] }], summary: Changes between two versions, parameters: [{ $ref: '#/components/parameters/Id' }, { name: from, in: query, required: true, schema: { type: integer } }, { name: to, in: query, required: true, schema: { type: integer } }], responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/VersionCompare' } } } } } }
+  /admin/routes/{id}/versions/{n}:
+    get: { tags: [Admin-Routes], security: [{ cookieAuth: [] }], summary: One full snapshot, parameters: [{ $ref: '#/components/parameters/Id' }, { $ref: '#/components/parameters/VersionN' }], responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/VersionDetail' } } } } } }
+  /admin/routes/{id}/restore:
+    post: { tags: [Super-Admin], security: [{ cookieAuth: [] }], summary: Restore metadata + geometry + waypoints together as a NEW version (Super Admin only), parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Restore' } } } }, responses: { '200': { description: OK }, '403': { $ref: '#/components/responses/Error403' }, '409': { $ref: '#/components/responses/Error409' } } }
+  /admin/audit-logs:
+    get: { tags: [Super-Admin], security: [{ cookieAuth: [] }], summary: Complete audit log (Super Admin only), parameters: [{ name: entityType, in: query, schema: { type: string, enum: [location, route, user] } }, { name: entityId, in: query, schema: { type: integer } }, { $ref: '#/components/parameters/Limit' }, { $ref: '#/components/parameters/Offset' }], responses: { '200': { description: OK }, '403': { $ref: '#/components/responses/Error403' } } }
+  /admin/users:
+    get: { tags: [Super-Admin], security: [{ cookieAuth: [] }], summary: List administrator accounts, responses: { '200': { description: OK } } }
+    post:
+      tags: [Super-Admin]
+      security: [{ cookieAuth: [] }]
+      summary: Create an admin account; the temporary password is returned ONCE and must be changed at first login
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [name, email], properties: { name: { type: string }, email: { type: string }, role: { type: string, enum: [admin, super_admin], default: admin }, temporaryPassword: { type: string } } } } } }
+      responses: { '201': { description: Created }, '409': { $ref: '#/components/responses/Error409' } }
+  /admin/users/{id}:
+    patch:
+      tags: [Super-Admin]
+      security: [{ cookieAuth: [] }]
+      summary: Change name / role / account status (the last active Super Admin cannot be demoted or deactivated)
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { name: { type: string }, role: { type: string, enum: [admin, super_admin] }, accountStatus: { type: string, enum: [active, inactive] } } } } } }
+      responses: { '200': { description: OK }, '403': { $ref: '#/components/responses/Error403' }, '409': { $ref: '#/components/responses/Error409' } }
