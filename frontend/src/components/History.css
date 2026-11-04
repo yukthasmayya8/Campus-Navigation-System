@@ -1,0 +1,186 @@
+.hv-card {
+  --ink: #16251f;
+  --muted: #5a6b64;
+  --surface: #ffffff;
+  --line: #d9e2de;
+  --accent: #1d6b53;
+  --accent-ink: #ffffff;
+  --skeleton: #e6ece9;
+  --error: #a32a2a;
+  --old-bg: #f8e3e1;
+  --new-bg: #dcf0e6;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+  margin-top: 12px;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  .hv-card {
+    --ink: #e8f0ec;
+    --muted: #9fb1a9;
+    --surface: #17211d;
+    --line: #2b3a34;
+    --accent: #4cb08f;
+    --accent-ink: #0c1612;
+    --skeleton: #24332d;
+    --error: #ff8a8a;
+    --old-bg: #4a2a28;
+    --new-bg: #1f4034;
+  }
+}
+
+.hv-card .hv-title {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+
+.hv-card .hv-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+.hv-card .hv-item {
+  border-left: 2px solid var(--line);
+  padding: 0 0 16px 14px;
+  margin-left: 4px;
+  position: relative;
+}
+.hv-card .hv-item::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.hv-card .hv-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hv-card .hv-tag {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.hv-card .hv-meta {
+  margin: 2px 0 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.hv-card .hv-desc {
+  margin: 0 0 8px;
+  line-height: 1.45;
+  max-width: 60ch;
+}
+
+.hv-card .hv-btn {
+  padding: 10px 14px;
+  font-size: 15px;
+  font-weight: 600;
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  cursor: pointer;
+}
+.hv-card .hv-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.hv-card .hv-btn:focus-visible,
+.hv-card select:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+}
+.hv-card .hv-btn-quiet {
+  background: transparent;
+  color: var(--accent);
+  border: 1.5px solid var(--accent);
+}
+
+.hv-card .hv-pickers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.hv-card .hv-pickers label {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.hv-card .hv-pickers select {
+  padding: 10px;
+  font-size: 16px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.hv-card .hv-changes {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+.hv-card .hv-diff {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 14px;
+}
+.hv-card .hv-old,
+.hv-card .hv-new {
+  padding: 3px 8px;
+  border-radius: 6px;
+  word-break: break-word;
+}
+.hv-card .hv-old {
+  background: var(--old-bg);
+  text-decoration: line-through;
+}
+.hv-card .hv-new {
+  background: var(--new-bg);
+}
+
+.hv-card .hv-note {
+  margin: 10px 0;
+  color: var(--muted);
+}
+.hv-card .hv-error {
+  color: var(--error);
+  margin: 0 0 12px;
+}
+.hv-card .hv-line {
+  height: 14px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+  background: var(--skeleton);
+  animation: hvPulse 1.2s ease-in-out infinite;
+}
+@keyframes hvPulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hv-card .hv-line {
+    animation: none;
+  }
+}

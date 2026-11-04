@@ -1,0 +1,118 @@
+.ld-card {
+  --ink: #16251f;
+  --muted: #5a6b64;
+  --surface: #ffffff;
+  --line: #d9e2de;
+  --accent: #1d6b53;
+  --accent-ink: #ffffff;
+  --skeleton: #e6ece9;
+  --error: #a32a2a;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  margin-top: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ld-card {
+    --ink: #e8f0ec;
+    --muted: #9fb1a9;
+    --surface: #17211d;
+    --line: #2b3a34;
+    --accent: #4cb08f;
+    --accent-ink: #0c1612;
+    --skeleton: #24332d;
+    --error: #ff8a8a;
+  }
+}
+
+.ld-card .ld-photo {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  background: var(--skeleton);
+}
+.ld-card .ld-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.ld-card .ld-nophoto {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.ld-card .ld-body {
+  padding: 16px;
+}
+.ld-card .ld-body h2 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 24px;
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+.ld-card .ld-desc {
+  margin: 0 0 16px;
+  line-height: 1.5;
+  color: var(--muted);
+  max-width: 60ch;
+}
+
+.ld-card .ld-btn {
+  width: 100%;
+  padding: 13px 16px;
+  font-size: 16px;
+  font-weight: 600;
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  cursor: pointer;
+}
+.ld-card .ld-btn:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+}
+.ld-card .ld-btn-quiet {
+  background: transparent;
+  color: var(--accent);
+  border: 1.5px solid var(--accent);
+}
+
+.ld-card .ld-note {
+  padding: 20px;
+  margin: 0;
+  color: var(--muted);
+}
+.ld-card .ld-error {
+  color: var(--error);
+  margin: 0 0 12px;
+}
+
+.ld-card .ld-skeleton,
+.ld-card .ld-line {
+  background: var(--skeleton);
+  animation: ldPulse 1.2s ease-in-out infinite;
+}
+.ld-card .ld-line {
+  height: 14px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+@keyframes ldPulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ld-card .ld-skeleton,
+  .ld-card .ld-line {
+    animation: none;
+  }
+}
