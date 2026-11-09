@@ -1,0 +1,139 @@
+.cs-root {
+  --cs-ink: #1d2530;
+  --cs-muted: #5d6877;
+  --cs-line: #c4ccd6;
+  --cs-surface: #ffffff;
+  --cs-hover: #e9eff7;
+  --cs-accent: #1f5fbf;
+  --cs-danger: #a3261c;
+  --cs-warn-bg: #fff4d6;
+  --cs-err-bg: #fdeceb;
+
+  position: relative;
+  width: 100%;
+  max-width: 32rem;
+  color: var(--cs-ink);
+  font: inherit;
+}
+
+.cs-field {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 4px;
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-line);
+  border-radius: 8px;
+}
+.cs-field:focus-within { border-color: var(--cs-accent); box-shadow: 0 0 0 2px rgba(31, 95, 191, 0.25); }
+.cs-field.is-disabled { opacity: 0.6; }
+
+.cs-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 16px; /* 16px stops iOS Safari zooming on focus */
+}
+
+.cs-icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--cs-muted);
+  cursor: pointer;
+}
+.cs-icon-btn:hover:not(:disabled) { background: var(--cs-hover); color: var(--cs-ink); }
+.cs-icon-btn:focus-visible { outline: 2px solid var(--cs-accent); outline-offset: -2px; }
+.cs-icon-btn:disabled { cursor: not-allowed; opacity: 0.45; }
+
+.cs-mic.is-listening { color: #fff; background: var(--cs-danger); animation: cs-pulse 1.4s ease-out infinite; }
+
+.cs-spinner {
+  width: 16px;
+  height: 16px;
+  margin-right: 4px;
+  border: 2px solid var(--cs-line);
+  border-top-color: var(--cs-accent);
+  border-radius: 50%;
+  animation: cs-spin 0.7s linear infinite;
+}
+
+.cs-status {
+  min-height: 1.25rem;
+  margin: 4px 2px 0;
+  font-size: 0.85rem;
+  color: var(--cs-muted);
+}
+.cs-status[data-tone='error'] { color: var(--cs-danger); }
+
+.cs-panel {
+  position: absolute;
+  z-index: 1100; /* above Leaflet panes and controls */
+  top: 48px;
+  left: 0;
+  right: 0;
+  max-height: 18rem;
+  overflow-y: auto;
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-line);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(20, 30, 45, 0.16);
+}
+
+.cs-list { margin: 0; padding: 4px; list-style: none; }
+
+.cs-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.cs-option.is-active { background: var(--cs-hover); }
+.cs-option-meta { flex-shrink: 0; font-size: 0.8rem; color: var(--cs-muted); }
+
+.cs-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding: 12px;
+  font-size: 0.95rem;
+  color: var(--cs-muted);
+}
+.cs-note-warn { background: var(--cs-warn-bg); color: var(--cs-ink); }
+.cs-note-error { background: var(--cs-err-bg); color: var(--cs-danger); }
+
+.cs-retry {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+@keyframes cs-spin { to { transform: rotate(360deg); } }
+@keyframes cs-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(163, 38, 28, 0.45); }
+  100% { box-shadow: 0 0 0 10px rgba(163, 38, 28, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cs-spinner { animation-duration: 2s; }
+  .cs-mic.is-listening { animation: none; }
+}
