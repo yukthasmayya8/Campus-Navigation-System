@@ -1,12 +1,12 @@
 import { NavLink, Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { useAdminAuth } from "./AuthContext";
 import AdminGuard from "./AdminGuard";
-import LocationManagement from "./locations/LocationManagement";
-import RouteManagement from "./routes/RouteManagement";
-import AdminHistory from "./history/AdminHistory";
-import AuditLog from "./accounts/AuditLog";
-import AdminAccountManagement from "./accounts/AdminAccountManagement";
-import ChangePassword from "./auth/ChangePassword";
+import LocationManagement from "./LocationManagement";
+import RouteManagement from "./RouteManagement";
+import AdminHistory from "./AdminHistory";
+import AuditLog from "./AuditLog";
+import AdminAccountManagement from "./AdminAccountManagement";
+import ChangePassword from "./ChangePassword";
 import { cx, styles } from "./ui";
 
 // ONE dashboard for Admin and Super Admin, built by composition: shared features are written once, and the

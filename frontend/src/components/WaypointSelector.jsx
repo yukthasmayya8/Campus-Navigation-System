@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { styles } from "../ui";
+import { styles } from "./ui";
 
 // Ordered waypoints: only registered, ACTIVE locations other than the start and destination can be added.
 export default function WaypointSelector({ locations, sourceId, destinationId, value, onChange, disabled }) {

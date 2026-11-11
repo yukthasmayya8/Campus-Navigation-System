@@ -1,4 +1,4 @@
-import { api } from "../../api";
+import { api } from "../api";
 
 // GET /api/locations/:id
 // Returns the location, or throws an ApiError with status 404 when the

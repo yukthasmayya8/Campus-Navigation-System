@@ -1,4 +1,4 @@
-import { api } from "../../api";
+import { api } from "../api";
 
 // entityType is "location" or "route"
 const base = (entityType, entityId) =>

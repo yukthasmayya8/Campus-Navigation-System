@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { TILE_URL, TILE_ATTRIBUTION, DEFAULT_CENTER } from "../mapConfig";
-import { styles } from "../ui";
+import { TILE_URL, TILE_ATTRIBUTION, DEFAULT_CENTER } from "./mapConfig";
+import { styles } from "./ui";
 
 const dot = (ll, color, r) => L.circleMarker(ll, { radius: r, color: "#fff", weight: 2, fillColor: color, fillOpacity: 1 });
 // Shows the recorded path with the start (green), destination (dark) and ordered waypoints (grey).

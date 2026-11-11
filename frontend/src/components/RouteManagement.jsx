@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { adminApi, items, normLocation, normRoute } from "../adminApi";
-import { useAdminAuth } from "../AuthContext";
-import { usePagedList } from "../usePagedList";
-import { errorMessage, isConflict } from "../adminUtils";
-import { Loading, ErrorBlock, Empty, Status, ConfirmButton, LoadMore, TriTag, styles } from "../ui";
+import { adminApi, items, normLocation, normRoute } from "./adminApi";
+import { useAdminAuth } from "./AuthContext";
+import { usePagedList } from "./usePagedList";
+import { errorMessage, isConflict } from "./adminUtils";
+import { Loading, ErrorBlock, Empty, Status, ConfirmButton, LoadMore, TriTag, styles } from "./ui";
 import RouteRecorder from "./RouteRecorder";
 
 // List / filter / paginate routes and run status actions. Draft routes are never visible to the public.

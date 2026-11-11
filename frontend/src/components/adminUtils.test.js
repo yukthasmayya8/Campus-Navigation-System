@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { passwordProblems, errorMessage, detailLines } from "../adminUtils";
-import { acceptFix, distanceMeters } from "../geo";
-import { normRoute, routeBody, CONTRACT } from "../adminApi";
+import { passwordProblems, errorMessage, detailLines } from "./adminUtils";
+import { acceptFix, distanceMeters } from "./geo";
+import { normRoute, routeBody, CONTRACT } from "./adminApi";
 
 describe("password rule (10+ chars, upper, lower, digit)", () => {
   it("accepts a strong password", () => expect(passwordProblems("RootPass2024x")).toEqual([]));

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { adminApi } from "../adminApi";
-import { useAdminAuth } from "../AuthContext";
-import { errorMessage, isConflict } from "../adminUtils";
-import { Loading, Status, styles } from "../ui";
+import { adminApi } from "./adminApi";
+import { useAdminAuth } from "./AuthContext";
+import { errorMessage, isConflict } from "./adminUtils";
+import { Loading, Status, styles } from "./ui";
 
 // Supplies the action behind Member 3's Restore button. Rendered only when canRestore is true.
 //  1. confirmation  2. expectedVersion check (409 -> conflict state with Reload)  3. clear result: the resulting status.

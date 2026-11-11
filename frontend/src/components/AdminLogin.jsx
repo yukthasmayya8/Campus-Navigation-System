@@ -1,9 +1,9 @@
 import { useEffect, useId, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
-import { adminApi } from "../adminApi";
-import { useAdminAuth } from "../AuthContext";
-import { errorMessage } from "../adminUtils";
-import { Field, Status, Loading, styles } from "../ui";
+import { adminApi } from "./adminApi";
+import { useAdminAuth } from "./AuthContext";
+import { errorMessage } from "./adminUtils";
+import { Field, Status, Loading, styles } from "./ui";
 
 // No signup anywhere: only accounts created by the Super Admin can sign in.
 export default function AdminLogin() {

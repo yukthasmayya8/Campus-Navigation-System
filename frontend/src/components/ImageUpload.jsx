@@ -1,8 +1,8 @@
 import { useId, useState } from "react";
-import { adminApi } from "../adminApi";
-import { useAdminAuth } from "../AuthContext";
-import { errorMessage } from "../adminUtils";
-import { Field, Status, styles } from "../ui";
+import { adminApi } from "./adminApi";
+import { useAdminAuth } from "./AuthContext";
+import { errorMessage } from "./adminUtils";
+import { Field, Status, styles } from "./ui";
 
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];

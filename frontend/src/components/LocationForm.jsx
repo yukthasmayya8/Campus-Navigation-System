@@ -1,9 +1,9 @@
 import { useEffect, useId, useMemo, useState } from "react";
-import { adminApi, items, normLocation } from "../adminApi";
-import { useAdminAuth } from "../AuthContext";
-import { capturePosition, MAX_ACCURACY_M } from "../geo";
-import { errorMessage, fmtMeters, isConflict } from "../adminUtils";
-import { Field, Status, styles } from "../ui";
+import { adminApi, items, normLocation } from "./adminApi";
+import { useAdminAuth } from "./AuthContext";
+import { capturePosition, MAX_ACCURACY_M } from "./geo";
+import { errorMessage, fmtMeters, isConflict } from "./adminUtils";
+import { Field, Status, styles } from "./ui";
 import MapPicker from "./MapPicker";
 import ImageUpload from "./ImageUpload";
 

@@ -1,8 +1,8 @@
 import { useId, useState } from "react";
 import { Link } from "react-router-dom";
-import { adminApi } from "../adminApi";
-import { errorMessage } from "../adminUtils";
-import { Field, Status, styles } from "../ui";
+import { adminApi } from "./adminApi";
+import { errorMessage } from "./adminUtils";
+import { Field, Status, styles } from "./ui";
 
 const GENERIC = "If an account exists for that e-mail, a reset link has been sent.";
 // The server always answers with the same message; this page never says whether an account exists.

@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { TILE_URL, TILE_ATTRIBUTION, DEFAULT_CENTER } from "../mapConfig";
-import { styles } from "../ui";
+import { TILE_URL, TILE_ATTRIBUTION, DEFAULT_CENTER } from "./mapConfig";
+import { styles } from "./ui";
 
 const pin = () => L.divIcon({ className: "", html: `<div class="${styles.pin}"></div>`, iconSize: [22, 22], iconAnchor: [11, 22] });
 
