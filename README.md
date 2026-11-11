@@ -1,28 +1,41 @@
-# Campus Navigation System — Backend + basic frontend
+# SMVITM Campus Navigation System
 
-Express + PostgreSQL/PostGIS backend and a minimal React/Leaflet shell, following
-*Campus_Navigation_System_Final_Implementation_Reference_v5*.
+Campus navigation system for **Shri Madhwa Vadiraja Institute of Technology and Management (SMVITM), Bantakal, Udupi, Karnataka, India**.
 
-## Run locally
-Prerequisites: Node 18+, PostgreSQL 14+ with PostGIS (local, or free Neon/Supabase — both include PostGIS).
+- **Frontend:** React + Vite (TypeScript entry/tooling enabled), Leaflet + OpenStreetMap
+- **Backend:** Node.js + Express + PostgreSQL/PostGIS (existing working architecture preserved/enhanced)
+- **Features:** building search/autocomplete, nearest-building detection, route alternatives, live GPS navigation (off-route/reroute/arrival), admin management, versioning/restore, offline caching/PWA support (client-side), SMVITM seed data script
 
+## How to run (local)
+
+**See [`RUNNING.md`](RUNNING.md) for complete setup instructions**, including Docker PostGIS, Windows/local PostgreSQL notes, integration test setup (`TEST_DATABASE_URL`), GPS simulation (Chrome DevTools Sensors), offline/PWA demo, and deployment notes.
+
+### Quick start
 ```bash
-# 1. Database (local example)
-createdb campus_nav            # or create a DB on Neon/Supabase and copy its URL
+# 1) Start PostGIS (recommended)
+docker compose up -d db
 
-# 2. Backend
+# 2) Backend
 cd backend
-cp .env.example .env           # set DATABASE_URL, JWT_SECRET (32+ chars), SUPERADMIN_* values
 npm install
-npm run migrate                # applies db/schema.sql (PostGIS, tables, indexes)
-npm run seed:superadmin        # first Super Admin (forced password change at first login)
-npm test                       # unit tests (route reversal/sorting/diff/image sniffing)
-npm run dev                    # http://localhost:4000/api/health
+# configure backend/.env (DATABASE_URL, JWT_SECRET >= 32 chars)
+npm run migrate
+npm run seed:smvitm      # idempotent SMVITM buildings/routes
+npm run dev              # http://localhost:4000
 
-# 3. Frontend (new terminal)
-cd frontend && npm install && npm run dev      # http://localhost:5173
-npm test                                       # GPS filter / off-path / offline-route unit tests
-# Offline PWA is active only in a production build:  npm run build && npm run preview  (service workers need HTTPS or localhost)
+# 3) Frontend (new terminal)
+cd frontend
+npm install
+npm run dev              # http://localhost:5173
+```
+
+### Tests/builds
+```bash
+# frontend
+cd frontend && npx tsc --noEmit && npm test && npm run build
+
+# backend (unit tests; integration tests require TEST_DATABASE_URL on isolated PostGIS DB)
+cd backend && npm test
 ```
 
 On Windows, create the backend environment file before starting the server:
