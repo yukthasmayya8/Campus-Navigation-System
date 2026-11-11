@@ -1,9 +1,9 @@
 import { useEffect, useState, useRef } from 'react';
-import CampusMap from './CampusMap.jsx';
+import MapPicker from './MapPicker.jsx';
 import {
   adminLocationsAll, createLocation, updateLocation,
   deactivateLocation, reactivateLocation, uploadImage,
-  getLocationVersions, restoreLocation,
+  getLocationVersions, restoreLocation, getAdminLocation,
 } from '../api.js';
 
 const EMPTY_FORM = { name: '', description: '', latitude: '', longitude: '', imageUrl: '', confirmNearby: false };
@@ -19,6 +19,7 @@ export default function AdminLocationsManager({ user }) {
   const [filter, setFilter]         = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [imageUploading, setImageUploading] = useState(false);
+  const [history, setHistory] = useState(null);
   const fileRef = useRef(null);
 
   const load = async () => {
@@ -89,6 +90,26 @@ export default function AdminLocationsManager({ user }) {
       if (loc.status === 'active') await deactivateLocation(loc.locationId, loc.versionNumber);
       else await reactivateLocation(loc.locationId, loc.versionNumber);
       setMsg(`Location ${loc.status === 'active' ? 'deactivated' : 'reactivated'}.`);
+      await load();
+    } catch (ex) { setErr(ex.message); } finally { setBusy(false); }
+  }
+
+  async function openHistory(loc) {
+    setErr('');
+    try {
+      const d = await getLocationVersions(loc.locationId);
+      setHistory({ loc, versions: d.items || [] });
+    } catch (ex) { setErr(ex.message); }
+  }
+
+  async function doRestore(loc, versionNumber) {
+    if (!window.confirm(`Restore "${loc.name}" to version ${versionNumber}? This creates a new version.`)) return;
+    setBusy(true); setErr('');
+    try {
+      const current = await getAdminLocation(loc.locationId);
+      await restoreLocation(loc.locationId, versionNumber, current.versionNumber);
+      setMsg(`Location restored to v${versionNumber}.`);
+      setHistory(null);
       await load();
     } catch (ex) { setErr(ex.message); } finally { setBusy(false); }
   }
@@ -166,12 +187,38 @@ export default function AdminLocationsManager({ user }) {
                       >
                         {loc.status === 'active' ? 'Deactivate' : 'Reactivate'}
                       </button>
+                      {user?.canRestore && (
+                        <button style={{ fontSize: 13, padding: '5px 10px' }} onClick={() => openHistory(loc)}>History</button>
+                      )}
                     </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {history && (
+        <div style={{ position: 'fixed', inset: 0, background: 'hsl(0,0%,0%,0.5)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: 'var(--surface)', borderRadius: 'var(--r-xl)', padding: 28, width: 'min(640px, 100%)', maxHeight: '85vh', overflowY: 'auto', boxShadow: 'var(--shadow-lg)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h3 style={{ margin: 0 }}>Version History: {history.loc.name}</h3>
+              <button className="icon" onClick={() => setHistory(null)}>✕</button>
+            </div>
+            {history.versions.length === 0 ? <p className="muted">No version history.</p> : (
+              <div className="table-wrap"><table><thead><tr><th>Version</th><th>Changed</th><th>Description</th><th>Restore</th></tr></thead><tbody>
+                {history.versions.map((v) => (
+                  <tr key={v.versionNumber}>
+                    <td><span className="chip blue">v{v.versionNumber}</span></td>
+                    <td style={{ fontSize: 13, color: 'var(--muted)' }}>{new Date(v.modifiedAt).toLocaleString()}{v.modifiedByName && <div>by {v.modifiedByName}</div>}</td>
+                    <td style={{ fontSize: 13 }}>{v.changeDescription || '—'}</td>
+                    <td><button className="secondary" style={{ fontSize: 12, padding: '5px 10px' }} onClick={() => doRestore(history.loc, v.versionNumber)} disabled={busy}>Restore</button></td>
+                  </tr>
+                ))}
+              </tbody></table></div>
+            )}
+          </div>
         </div>
       )}
 
@@ -195,11 +242,20 @@ export default function AdminLocationsManager({ user }) {
               </label>
               <div className="row">
                 <label>Latitude *
-                  <input type="number" step="any" value={form.latitude} onChange={setF('latitude')} placeholder="13.3225" />
+                  <input type="number" step="any" value={form.latitude} onChange={setF('latitude')} placeholder="13.2548" />
                 </label>
                 <label>Longitude *
-                  <input type="number" step="any" value={form.longitude} onChange={setF('longitude')} placeholder="74.7843" />
+                  <input type="number" step="any" value={form.longitude} onChange={setF('longitude')} placeholder="74.7852" />
                 </label>
+              </div>
+              <div>
+                <div className="muted" style={{ marginBottom: 6, fontSize: 12 }}>Click or drag on the map to set coordinates</div>
+                <MapPicker
+                  value={form.latitude !== '' && form.longitude !== '' ? { lat: Number(form.latitude), lng: Number(form.longitude) } : null}
+                  onChange={(v) => setForm((f) => ({ ...f, latitude: v.lat.toFixed(7), longitude: v.lng.toFixed(7) }))}
+                  others={locations.filter((l) => editing?.locationId ? l.locationId !== editing.locationId : true).map((l) => ({ latitude: l.latitude, longitude: l.longitude, name: l.name, status: l.status }))}
+                  height={220}
+                />
               </div>
               <label>Building Photo
                 <input value={form.imageUrl} onChange={setF('imageUrl')} placeholder="https://… or upload below" />

@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import VoiceSearchControl from './VoiceSearchControl.jsx';
-import { useLocationSearch } from './useLocationSearch.js';
+import VoiceSearchControl from './VoiceSearchControl (1).jsx';
+import { useLocationSearch } from './useLocationSearch (1).js';
 import { locationId } from './searchUtils.js';
 import './CampusSearch.css';
 
@@ -12,6 +12,7 @@ import './CampusSearch.css';
  */
 export default function CampusSearch({
   onSelect,
+  onClear,
   placeholder = 'Search buildings and places',
   disabled = false,
 }) {
@@ -69,6 +70,7 @@ export default function CampusSearch({
     setActiveIndex(-1);
     setVoice((v) => (['unsupported', 'denied'].includes(v.state) ? v : { state: 'idle', message: '' }));
     setVoiceResetKey((k) => k + 1);
+    onClear?.();
     inputRef.current?.focus();
   }
 

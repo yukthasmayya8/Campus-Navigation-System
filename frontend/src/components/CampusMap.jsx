@@ -143,8 +143,7 @@ export default function CampusMap({ locations = [], route = null, userPosition =
   useEffect(() => {
     if (!mapReady || !map.current) return;
 
-    // Remove previous
-    if (userMarker.current)   { userMarker.current.remove();   userMarker.current   = null; }
+    if (userMarker.current) { userMarker.current.remove(); userMarker.current = null; }
     if (accuracyCircle.current) { accuracyCircle.current.remove(); accuracyCircle.current = null; }
 
     if (!userPosition) return;
@@ -155,7 +154,6 @@ export default function CampusMap({ locations = [], route = null, userPosition =
 
     const ll = [displayPos.latitude, displayPos.longitude];
 
-    // Pulsing user dot (outer ring + inner dot)
     accuracyCircle.current = L.circle(ll, {
       radius: userPosition.accuracy || 15,
       color: '#1a73e8', fillColor: '#1a73e8', fillOpacity: 0.1, weight: 1,

@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import PublicPage from './pages/PublicPage.jsx';
 import AdminLogin from './pages/AdminLogin.jsx';
 import AdminHome from './pages/AdminHome.jsx';

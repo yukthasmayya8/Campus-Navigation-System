@@ -3,7 +3,70 @@ import { useNavigate, Link } from 'react-router-dom';
 import TopNav from '../components/TopNav.jsx';
 import AdminLocationsManager from '../components/AdminLocationsManager.jsx';
 import AdminRoutesManager from '../components/AdminRoutesManager.jsx';
-import { me, logout, adminLocations, adminRoutesList } from '../api.js';
+import { me, logout, adminLocationsAll, adminRoutesList, listUsers, createUser, updateUser } from '../api.js';
+
+function UsersManager() {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState('');
+  const [msg, setMsg] = useState('');
+  const [form, setForm] = useState({ name: '', email: '', role: 'admin', temporaryPassword: '' });
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    setLoading(true); setErr('');
+    try { setUsers(await listUsers()); } catch (e) { setErr(e.message); } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  async function addUser(e) {
+    e.preventDefault(); setBusy(true); setErr(''); setMsg('');
+    try {
+      const res = await createUser({ name: form.name.trim(), email: form.email.trim(), role: form.role, temporaryPassword: form.temporaryPassword || undefined });
+      setMsg(`User created. Temporary password: ${res.temporaryPassword || '(as provided)'}`);
+      setForm({ name: '', email: '', role: 'admin', temporaryPassword: '' });
+      await load();
+    } catch (ex) { setErr(ex.details?.[0]?.message || ex.message); } finally { setBusy(false); }
+  }
+
+  async function toggle(u) {
+    const next = u.accountStatus === 'active' ? 'inactive' : 'active';
+    if (!window.confirm(`${next === 'active' ? 'Activate' : 'Deactivate'} ${u.email}?`)) return;
+    setBusy(true); setErr('');
+    try { await updateUser(u.userId, { accountStatus: next }); await load(); } catch (ex) { setErr(ex.message); } finally { setBusy(false); }
+  }
+
+  return (
+    <div>
+      {err && <div className="alert error" style={{ marginBottom: 12 }}>{err}</div>}
+      {msg && <div className="alert success" style={{ marginBottom: 12 }}>{msg}</div>}
+      <form onSubmit={addUser} style={{ display: 'grid', gap: 10, marginBottom: 16, maxWidth: 720 }}>
+        <div className="row">
+          <label>Name<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></label>
+          <label>Email<input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required /></label>
+        </div>
+        <div className="row">
+          <label>Role<select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}><option value="admin">Admin</option><option value="super_admin">Super Admin</option></select></label>
+          <label>Temporary password (optional)<input value={form.temporaryPassword} onChange={(e) => setForm({ ...form, temporaryPassword: e.target.value })} placeholder="Leave blank to auto-generate" /></label>
+        </div>
+        <button className="primary" type="submit" disabled={busy} style={{ width: 'fit-content' }}>Create user</button>
+      </form>
+      {loading ? <p className="muted">Loading users…</p> : (
+        <div className="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Action</th></tr></thead><tbody>
+          {users.map((u) => (
+            <tr key={u.userId}>
+              <td>{u.name}</td>
+              <td>{u.email}</td>
+              <td><span className="chip blue">{u.role}</span></td>
+              <td><span className={`badge ${u.accountStatus}`}>{u.accountStatus}</span></td>
+              <td><button onClick={() => toggle(u)} disabled={busy} style={{ fontSize: 12, padding: '5px 10px' }}>{u.accountStatus === 'active' ? 'Deactivate' : 'Activate'}</button></td>
+            </tr>
+          ))}
+        </tbody></table></div>
+      )}
+    </div>
+  );
+}
 
 export default function AdminHome() {
   const navigate = useNavigate();
@@ -38,15 +101,18 @@ export default function AdminHome() {
     setStatsLoading(true);
     setStatsError('');
 
-    Promise.all([adminLocations(), adminRoutesList()])
-      .then(([locData, routeData]) => {
-        const locations = Array.isArray(locData) ? locData : locData?.locations ?? [];
-        const routes = Array.isArray(routeData) ? routeData : routeData?.routes ?? [];
-
+    Promise.all([
+      adminLocationsAll(),
+      adminRoutesList({ limit: 100, offset: 0 }),
+      adminRoutesList({ status: 'draft', limit: 100, offset: 0 }),
+    ])
+      .then(([locItems, routePage, draftPage]) => {
+        const locations = Array.isArray(locItems) ? locItems : [];
+        const routes = Array.isArray(routePage?.items) ? routePage.items : [];
         setStats({
-          activeLocations: locations.filter((l) => l.status === 'active' || l.is_active).length,
-          activeRoutes: routes.filter((r) => r.status === 'active').length,
-          draftRoutes: routes.filter((r) => r.status === 'draft').length,
+          activeLocations: locations.filter((l) => l.status === 'active').length,
+          activeRoutes: routes.filter((r) => r.status === 'active').length || (routePage.total || 0),
+          draftRoutes: draftPage?.total ?? routes.filter((r) => r.status === 'draft').length,
         });
       })
       .catch(() => {
@@ -231,13 +297,7 @@ export default function AdminHome() {
         {activeTab === 'users' && isSuperAdmin && (
           <section>
             <h2 className="section-title">Users</h2>
-            <div className="card" style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>
-              <p style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>👤 User management</p>
-              <p style={{ fontSize: '0.875rem' }}>
-                User management panel coming soon. Super admins can invite, deactivate, and manage
-                admin accounts here.
-              </p>
-            </div>
+            <UsersManager />
           </section>
         )}
       </div>

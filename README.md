@@ -1,29 +1,71 @@
-# Campus Navigation System — Backend + basic frontend
+# SMVITM Campus Navigation System
 
-Express + PostgreSQL/PostGIS backend and a minimal React/Leaflet shell, following
-*Campus_Navigation_System_Final_Implementation_Reference_v5*.
+Campus navigation system for **Shri Madhwa Vadiraja Institute of Technology and Management (SMVITM), Bantakal, Udupi, Karnataka, India**.
 
-## Run locally
-Prerequisites: Node 18+, PostgreSQL 14+ with PostGIS (local, or free Neon/Supabase — both include PostGIS).
+- **Frontend:** React + Vite (TypeScript entry/tooling enabled), Leaflet + OpenStreetMap
+- **Backend:** Node.js + Express + PostgreSQL/PostGIS (existing working architecture preserved/enhanced)
+- **Features:** building search/autocomplete, nearest-building detection, route alternatives, live GPS navigation (off-route/reroute/arrival), admin management, versioning/restore, offline caching/PWA support (client-side), SMVITM seed data script
 
+## How to run (local)
+
+**See [`RUNNING.md`](RUNNING.md) for complete setup instructions**, including Docker PostGIS, Windows/local PostgreSQL notes, integration test setup (`TEST_DATABASE_URL`), GPS simulation (Chrome DevTools Sensors), offline/PWA demo, and deployment notes.
+
+### Quick start
 ```bash
-# 1. Database (local example)
-createdb campus_nav            # or create a DB on Neon/Supabase and copy its URL
+# 1) Start PostGIS (recommended)
+docker compose up -d db
 
-# 2. Backend
+# 2) Backend
 cd backend
-cp .env.example .env           # set DATABASE_URL, JWT_SECRET (32+ chars), SUPERADMIN_* values
 npm install
-npm run migrate                # applies db/schema.sql (PostGIS, tables, indexes)
-npm run seed:superadmin        # first Super Admin (forced password change at first login)
-npm test                       # unit tests (route reversal/sorting/diff/image sniffing)
-npm run dev                    # http://localhost:4000/api/health
+# configure backend/.env (DATABASE_URL, JWT_SECRET >= 32 chars)
+npm run migrate
+npm run seed:smvitm      # idempotent SMVITM buildings/routes
+npm run dev              # http://localhost:4000
 
-# 3. Frontend (new terminal)
-cd frontend && npm install && npm run dev      # http://localhost:5173
-npm test                                       # GPS filter / off-path / offline-route unit tests
-# Offline PWA is active only in a production build:  npm run build && npm run preview  (service workers need HTTPS or localhost)
+# 3) Frontend (new terminal)
+cd frontend
+npm install
+npm run dev              # http://localhost:5173
 ```
+
+### Tests/builds
+```bash
+# frontend
+cd frontend && npx tsc --noEmit && npm test && npm run build
+
+# backend (unit tests; integration tests require TEST_DATABASE_URL on isolated PostGIS DB)
+cd backend && npm test
+```
+
+On Windows, create the backend environment file before starting the server:
+
+```powershell
+Copy-Item backend/.env.example backend/.env
+# Edit backend/.env and replace DATABASE_URL with your PostgreSQL username,
+# password, host, port and database name. Set JWT_SECRET to 32+ characters.
+npm run migrate --workspace backend
+npm run seed:superadmin --workspace backend
+npm run dev:backend
+```
+
+The database user in `.env.example` is only an example. If PostgreSQL reports
+`password authentication failed`, use the password configured for your local
+`postgres` role. Login will not work until the migration and Super Admin seed
+commands complete successfully.
+
+## Deploy the frontend
+
+The repository includes `netlify.toml` and `vercel.json`, so either platform can
+install dependencies and build the Vite app without adding scripts in the hosting
+dashboard. Set the frontend environment variable `VITE_API_URL` to the public
+origin of the deployed Express API, for example `https://api.example.com` (or
+`https://api.example.com/api`). Set the backend `CORS_ORIGINS` to the deployed
+frontend URL and keep `COOKIE_SECURE=true` in production.
+
+The backend still needs a Node host with PostgreSQL/PostGIS and persistent image
+storage. Netlify and Vercel serve the frontend build; they do not provide the
+database or durable local filesystem used by the development storage driver.
 
 ## API summary (all under /api)
 Public (no login)

@@ -1,8 +1,8 @@
-import { api } from "../../api";
+import { api } from "../api";
 
 // entityType is "location" or "route"
 const base = (entityType, entityId) =>
-  `/api/admin/${entityType === "route" ? "routes" : "locations"}/${entityId}/versions`;
+  `/admin/${entityType === "route" ? "routes" : "locations"}/${entityId}/versions`;
 
 // GET .../versions?limit=&offset=  ->  { total, limit, offset, items: [...] } newest first
 export function getVersions(entityType, entityId, { limit = 10, offset = 0 } = {}) {

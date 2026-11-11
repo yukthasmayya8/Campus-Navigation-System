@@ -1,8 +1,5 @@
-import { getLocations } from '../../api.js';
+import { apiUrl, getLocations } from '../api.js';
 import { SEARCH_LIMIT, filterLocal } from './searchUtils.js';
-
-// Same-origin by default (Vite proxy in dev). Set VITE_API_URL if the API lives elsewhere.
-const API_BASE = import.meta.env?.VITE_API_URL ?? '';
 
 export class SearchError extends Error {
   constructor(code, message) {
@@ -16,7 +13,7 @@ export async function fetchSuggestions(q, { signal, limit = SEARCH_LIMIT } = {})
   let res;
   try {
     res = await fetch(
-      `${API_BASE}/api/locations/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+      apiUrl(`/locations/search?q=${encodeURIComponent(q)}&limit=${limit}`),
       { signal, headers: { Accept: 'application/json' } }
     );
   } catch (err) {
