@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useId, useState } from "react";
-import { adminApi, items, normUser } from "../adminApi";
-import { useAdminAuth } from "../AuthContext";
-import { errorMessage } from "../adminUtils";
-import { Field, Loading, ErrorBlock, Empty, Status, styles } from "../ui";
+import { adminApi, items, normUser } from "./adminApi";
+import { useAdminAuth } from "./AuthContext";
+import { errorMessage } from "./adminUtils";
+import { Field, Loading, ErrorBlock, Empty, Status, styles } from "./ui";
 
 // Super Admin only. The temporary password is returned by the server once: show it once, then it is gone.
 export default function AdminAccountManagement() {

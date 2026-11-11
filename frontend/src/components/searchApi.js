@@ -1,4 +1,4 @@
-import { getLocations } from '../../api.js';
+import { getLocations } from '../api.js';
 import { SEARCH_LIMIT, filterLocal } from './searchUtils.js';
 
 // Same-origin by default (Vite proxy in dev). Set VITE_API_URL if the API lives elsewhere.

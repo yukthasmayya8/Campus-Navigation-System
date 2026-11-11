@@ -1,5 +1,5 @@
 import { useId } from "react";
-import { Field, TriStateSelect } from "../ui";
+import { Field, TriStateSelect } from "./ui";
 
 // Source, destination, name, directionality, verified characteristics (Verified yes / Verified no / Not verified) and notes.
 export default function RouteMetaFields({ value, onChange, locations, lockEndpoints }) {

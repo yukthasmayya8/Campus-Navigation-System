@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { adminApi } from "../adminApi";
-import { useAdminAuth } from "../AuthContext";
-import { usePagedList } from "../usePagedList";
-import { fmtDate } from "../adminUtils";
-import { Loading, ErrorBlock, Empty, LoadMore, styles } from "../ui";
+import { adminApi } from "./adminApi";
+import { useAdminAuth } from "./AuthContext";
+import { usePagedList } from "./usePagedList";
+import { fmtDate } from "./adminUtils";
+import { Loading, ErrorBlock, Empty, LoadMore, styles } from "./ui";
 
 const summarize = (o) => (o && Array.isArray(o.points) ? { ...o, points: `${o.points.length} points` } : o);
 // Super Admin only: who changed what and when, filterable and paginated.

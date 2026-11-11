@@ -3,7 +3,7 @@
 //
 // Everything in CONTRACT / the normalisers below is derived from the Team Guide and the README.
 // If your docs/api-contracts.yaml differs, this is the ONLY file to adjust.
-import { api } from "../../api";
+import { api } from "../api";
 
 export const CONTRACT = {
   // Prefix to add if your src/api.js does NOT already prepend "/api" (the guide lists paths as /api/...).

@@ -1,8 +1,8 @@
 import { useId, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { adminApi } from "../adminApi";
-import { errorMessage, passwordProblems, PASSWORD_RULE_TEXT } from "../adminUtils";
-import { Field, Status, styles } from "../ui";
+import { adminApi } from "./adminApi";
+import { errorMessage, passwordProblems, PASSWORD_RULE_TEXT } from "./adminUtils";
+import { Field, Status, styles } from "./ui";
 
 // Opened from the e-mail link: /admin/reset-password?token=...
 export default function ResetPassword() {

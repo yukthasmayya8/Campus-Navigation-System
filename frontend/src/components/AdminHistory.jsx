@@ -1,11 +1,12 @@
 import { useEffect, useId, useState } from "react";
-import { adminApi, items, normRoute } from "../adminApi";
-import { useAdminAuth } from "../AuthContext";
-import { Loading, ErrorBlock, Empty, Field, styles } from "../ui";
+import { adminApi, items, normRoute } from "./adminApi";
+import { useAdminAuth } from "./AuthContext";
+import { Loading, ErrorBlock, Empty, Field, styles } from "./ui";
 import RestoreSnapshot from "./RestoreSnapshot";
 // Member 3's components (merged before admin). Contract from the guide:
 //   VersionHistory({ entityType, entityId, canRestore, onRestore(versionNumber) })   VersionComparison({ entityType, entityId })
-import { VersionHistory, VersionComparison } from "../../history";
+import VersionHistory from "./VersionHistory";
+import VersionComparison from "./VersionComparison";
 
 // Picks a location or route, shows Member 3's timeline + comparison, and supplies the Restore action (Super Admin only).
 export default function AdminHistory() {

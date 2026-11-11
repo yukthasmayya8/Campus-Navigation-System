@@ -1,9 +1,9 @@
 import { useId, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { adminApi } from "../adminApi";
-import { useAdminAuth } from "../AuthContext";
-import { errorMessage, passwordProblems, PASSWORD_RULE_TEXT } from "../adminUtils";
-import { Field, Status, styles } from "../ui";
+import { adminApi } from "./adminApi";
+import { useAdminAuth } from "./AuthContext";
+import { errorMessage, passwordProblems, PASSWORD_RULE_TEXT } from "./adminUtils";
+import { Field, Status, styles } from "./ui";
 
 // forced === true: first login (the server blocks everything else until this succeeds).
 export default function ChangePassword({ forced = false }) {

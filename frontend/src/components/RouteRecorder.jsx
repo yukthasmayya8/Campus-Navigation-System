@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { adminApi, normRoute, routeBody } from "../adminApi";
-import { useAdminAuth } from "../AuthContext";
-import { useGpsRecorder } from "../useGpsRecorder";
-import { useBatchUploader } from "../useBatchUploader";
-import { pathLength } from "../geo";
-import { errorMessage, fmtMeters, isConflict } from "../adminUtils";
-import { Status, ConfirmButton, styles } from "../ui";
+import { adminApi, normRoute, routeBody } from "./adminApi";
+import { useAdminAuth } from "./AuthContext";
+import { useGpsRecorder } from "./useGpsRecorder";
+import { useBatchUploader } from "./useBatchUploader";
+import { pathLength } from "./geo";
+import { errorMessage, fmtMeters, isConflict } from "./adminUtils";
+import { Status, ConfirmButton, styles } from "./ui";
 import RouteMetaFields from "./RouteMetaFields";
 import WaypointSelector from "./WaypointSelector";
 import RoutePreview from "./RoutePreview";

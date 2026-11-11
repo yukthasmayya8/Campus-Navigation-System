@@ -1,10 +1,10 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AdminAuthProvider } from "./AuthContext";
 import AdminGuard from "./AdminGuard";
-import AdminLogin from "./auth/AdminLogin";
-import ForgotPassword from "./auth/ForgotPassword";
-import ResetPassword from "./auth/ResetPassword";
-import ChangePassword from "./auth/ChangePassword";
+import AdminLogin from "./AdminLogin";
+import ForgotPassword from "./ForgotPassword";
+import ResetPassword from "./ResetPassword";
+import ChangePassword from "./ChangePassword";
 import AdminDashboard from "./AdminDashboard";
 import { useAdminAuth } from "./AuthContext";
 

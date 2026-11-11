@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { adminApi, items, normLocation } from "../adminApi";
-import { useAdminAuth } from "../AuthContext";
-import { errorMessage, isConflict } from "../adminUtils";
-import { Loading, ErrorBlock, Empty, Status, ConfirmButton, styles } from "../ui";
+import { adminApi, items, normLocation } from "./adminApi";
+import { useAdminAuth } from "./AuthContext";
+import { errorMessage, isConflict } from "./adminUtils";
+import { Loading, ErrorBlock, Empty, Status, ConfirmButton, styles } from "./ui";
 import LocationForm from "./LocationForm";
 
 // List (including inactive), filter, register, edit/correct coordinates, deactivate/reactivate. There is no delete.
