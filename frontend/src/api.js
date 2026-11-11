@@ -129,12 +129,53 @@ export const restoreLocation = (id, versionNumber, expectedVersion) =>
   api(`/admin/locations/${id}/restore`, { method: 'POST', body: { versionNumber, expectedVersion } });
 
 // ── Admin: Image upload ───────────────────────────────────────────────────────
+async function compressImageFile(file, { maxWidth = 1600, maxHeight = 1600, quality = 0.82, maxBytes = 900000 } = {}) {
+  if (!(file instanceof File) || !file.type.startsWith('image/')) return file;
+  // Skip tiny files
+  if (file.size <= maxBytes) return file;
+
+  const loadImage = () => new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
+    img.src = url;
+  });
+
+  try {
+    const img = await loadImage();
+    let { width, height } = img;
+    const scale = Math.min(1, maxWidth / width, maxHeight / height);
+    width = Math.max(1, Math.round(width * scale));
+    height = Math.max(1, Math.round(height * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return file;
+    ctx.drawImage(img, 0, 0, width, height);
+
+    const toBlob = (type, q) => new Promise((resolve) => canvas.toBlob(resolve, type, q));
+    let blob = await toBlob('image/jpeg', quality);
+    // Try lower quality if still large
+    if (blob && blob.size > maxBytes) blob = await toBlob('image/jpeg', 0.72);
+    if (blob && blob.size > maxBytes) blob = await toBlob('image/webp', 0.75);
+    if (!blob || blob.size >= file.size) return file;
+    const name = (file.name || 'upload').replace(/\.[^.]+$/, '') + (blob.type === 'image/webp' ? '.webp' : '.jpg');
+    return new File([blob], name, { type: blob.type, lastModified: Date.now() });
+  } catch {
+    return file;
+  }
+}
+
 export async function uploadImage(file) {
+  const optimized = await compressImageFile(file);
   const form = new FormData();
-  form.append('image', file);
+  form.append('image', optimized, optimized.name || file.name);
   let res;
   try {
-    res = await fetch('/api/admin/uploads/image', { method: 'POST', credentials: 'include', body: form });
+    res = await fetch(apiUrl('/admin/uploads/image'), { method: 'POST', credentials: 'include', body: form });
   } catch {
     throw new ApiError(0, 'NETWORK', 'Cannot reach the server.');
   }

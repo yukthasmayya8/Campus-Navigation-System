@@ -55,6 +55,7 @@ export default function PublicPage() {
   const [followMe, setFollowMe] = useState(true);
   const [locatingMe, setLocatingMe] = useState(false);
   const [category, setCategory] = useState('All');
+  const [routeSort, setRouteSort] = useState('recommended'); // recommended | shortest
 
   const watchId = useRef(null);
   const tracker = useRef(null);
@@ -134,7 +135,7 @@ export default function PublicPage() {
     try {
       const d = await getRoutes(startSel.id, destSel.id);
       if (seq !== reqSeq.current) return;
-      setRoutes(d.items);
+      setRoutes(d.items || []);
       setRouteMsg(d.message || (d.offline ? 'Showing saved routes (offline mode).' : ''));
     } catch (e) {
       if (seq === reqSeq.current) setRouteMsg(e.message);
@@ -225,6 +226,10 @@ export default function PublicPage() {
   const nextWP = getNextWaypoint();
   const categories = ['All', ...Array.from(new Set(locations.map(inferCategory))).sort()];
   const visibleLocations = locations.filter((l) => category === 'All' || inferCategory(l) === category);
+  const displayedRoutes = (routes || []).slice().sort((a, b) => {
+    if (routeSort === 'shortest') return (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity) || a.routeId - b.routeId;
+    return 0; // keep backend "recommended" order
+  });
 
   return (
     <div className="page">
@@ -250,8 +255,9 @@ export default function PublicPage() {
               onSelect={(item) => { resetAll(); setStartSel(item); }}
               fetchItems={fetchSuggestions} placeholder="Search starting point…" />
             <button id="use-my-location" className="secondary" style={{ marginTop: 8, width: '100%', fontSize: 13 }} onClick={useMyLocation} disabled={locatingMe}>
-              {locatingMe ? 'Detecting location…' : 'Use my current location'}
+              {locatingMe ? 'Detecting location…' : 'Use my current location (phone GPS)'}
             </button>
+            <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>If GPS is inaccurate, choose the correct start building from the dropdown/search above.</div>
           </div>
 
           <div>
@@ -310,8 +316,13 @@ export default function PublicPage() {
           {routes && routes.length > 0 && (
             <div>
               <div className="section-title" style={{ marginBottom: 8 }}>{routes.length} Route{routes.length > 1 ? 's' : ''} Available</div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                <button type="button" className={routeSort === 'recommended' ? 'secondary' : ''} style={{ flex: 1, fontSize: 12, padding: '7px 10px' }} onClick={() => setRouteSort('recommended')}>Recommended</button>
+                <button type="button" className={routeSort === 'shortest' ? 'secondary' : ''} style={{ flex: 1, fontSize: 12, padding: '7px 10px' }} onClick={() => setRouteSort('shortest')}>Shortest distance</button>
+              </div>
+              <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Outdoor building-to-building walking routes only. If GPS drifts, select your start building manually from search/list.</div>
               <div className="route-list">
-                {routes.map((r) => (
+                {displayedRoutes.map((r) => (
                   <button key={r.routeId} id={`route-${r.routeId}`}
                     className={`route-card${selected?.routeId === r.routeId ? ' selected' : ''}`}
                     onClick={() => { stopNav(); setSelected(r); setNotice(''); }}>
