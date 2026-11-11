@@ -2,11 +2,16 @@ export class ApiError extends Error {
   constructor(status, code, message, details) { super(message); this.status = status; this.code = code; this.details = details; }
 }
 
+const configuredApiUrl = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+const apiPrefix = configuredApiUrl.endsWith('/api') ? configuredApiUrl : `${configuredApiUrl}/api`;
+
+export const apiUrl = (path) => `${apiPrefix}${path.startsWith('/') ? path : `/${path}`}`;
+
 /** All backend calls go through here: consistent errors, cookies included, network failures explained. */
 export async function api(path, { method = 'GET', body } = {}) {
   let res;
   try {
-    res = await fetch(`/api${path}`, {
+    res = await fetch(apiUrl(path), {
       method, credentials: 'include',
       headers: body ? { 'Content-Type': 'application/json' } : undefined,
       body: body ? JSON.stringify(body) : undefined,

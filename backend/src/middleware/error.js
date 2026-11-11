@@ -20,6 +20,9 @@ function mapPgError(err) {
       return new AppError(400, 'INVALID_VALUE', 'A value has an invalid format or is out of range');
     case '57014': return new AppError(503, 'DB_TIMEOUT', 'The database took too long to respond. Try again.');
     case '40001': case '40P01': return new AppError(409, 'RETRY', 'The operation collided with another change. Try again.');
+    case '28P01': return new AppError(503, 'DB_AUTH_FAILED', 'Database authentication failed. Check DATABASE_URL in backend/.env.');
+    case '3D000': return new AppError(503, 'DB_NOT_FOUND', 'The configured database does not exist. Create it or correct DATABASE_URL.');
+    case '42P01': return new AppError(503, 'DB_SCHEMA_MISSING', 'Database tables are missing. Run the backend migration before using the app.');
     default: return null;
   }
 }
@@ -38,7 +41,7 @@ function errorHandler(err, req, res, next) {
     e = new AppError(400, 'VALIDATION_ERROR', 'Invalid request data',
       err.issues.map((i) => ({ field: i.path.join('.'), message: i.message })));
   else if (err && (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT' ||
-           /Connection terminated|timeout exceeded when trying to connect|too many clients/i.test(err.message || '')))
+    /Connection terminated|timeout exceeded when trying to connect|too many clients/i.test(err.message || '')))
     e = new AppError(503, 'DB_UNAVAILABLE', 'The service is temporarily unavailable. Please try again shortly.');
   else if (!(err instanceof AppError) && err && err.code) e = mapPgError(err) || err;
 

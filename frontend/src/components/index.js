@@ -1,5 +1,5 @@
-export { default as CampusSearch } from './CampusSearch.jsx';
-export { default as VoiceSearchControl } from './VoiceSearchControl.jsx';
+export { default as CampusSearch } from './CampusSearch (2).jsx';
+export { default as VoiceSearchControl } from './VoiceSearchControl (1).jsx';
 export { default as AdminRoutes } from "./AdminRoutes";
 export { default as AdminDashboard } from "./AdminDashboard";
 export { default as AdminGuard } from "./AdminGuard";

@@ -25,6 +25,35 @@ npm test                                       # GPS filter / off-path / offline
 # Offline PWA is active only in a production build:  npm run build && npm run preview  (service workers need HTTPS or localhost)
 ```
 
+On Windows, create the backend environment file before starting the server:
+
+```powershell
+Copy-Item backend/.env.example backend/.env
+# Edit backend/.env and replace DATABASE_URL with your PostgreSQL username,
+# password, host, port and database name. Set JWT_SECRET to 32+ characters.
+npm run migrate --workspace backend
+npm run seed:superadmin --workspace backend
+npm run dev:backend
+```
+
+The database user in `.env.example` is only an example. If PostgreSQL reports
+`password authentication failed`, use the password configured for your local
+`postgres` role. Login will not work until the migration and Super Admin seed
+commands complete successfully.
+
+## Deploy the frontend
+
+The repository includes `netlify.toml` and `vercel.json`, so either platform can
+install dependencies and build the Vite app without adding scripts in the hosting
+dashboard. Set the frontend environment variable `VITE_API_URL` to the public
+origin of the deployed Express API, for example `https://api.example.com` (or
+`https://api.example.com/api`). Set the backend `CORS_ORIGINS` to the deployed
+frontend URL and keep `COOKIE_SECURE=true` in production.
+
+The backend still needs a Node host with PostgreSQL/PostGIS and persistent image
+storage. Netlify and Vercel serve the frontend build; they do not provide the
+database or durable local filesystem used by the development storage driver.
+
 ## API summary (all under /api)
 Public (no login)
 - GET `/locations/nearest?lat&lng` (PostGIS nearest buildings) · GET `/offline/snapshot` (data for the offline cache)

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import TopNav from '../components/TopNav.jsx';
 import CampusMap from '../components/CampusMap.jsx';
+import CampusSearch from '../components/CampusSearch (2).jsx';
 import RouteAlternatives from '../components/RouteAlternatives.jsx';
 import { getLocations, getRoutes, getNearest, syncOfflineData, offlineStatus } from '../api.js';
 import { PathTracker } from '../lib/tracker.js';
@@ -49,8 +50,8 @@ export default function PublicPage() {
   function stopNav() { stopWatch(); tracker.current = null; setNavigating(false); setPos(null); setNavInfo(null); setGpsNote(''); }
 
   /** Any change to start/destination invalidates in-flight requests, results and navigation. */
-  function changeSelection(setter) {
-    return (e) => { reqSeq.current++; setBusy(false); stopNav(); setRoutes(null); setSelected(null); setRouteMsg(''); setNotice(''); setter(e.target.value); };
+  function changeSelection(setter, value) {
+    reqSeq.current++; setBusy(false); stopNav(); setRoutes(null); setSelected(null); setRouteMsg(''); setNotice(''); setter(value ? String(value) : '');
   }
 
   async function findRoutes(from = startId, to = destId) {
@@ -123,16 +124,18 @@ export default function PublicPage() {
           {loadError && <div className="alert error">{loadError} <button className="link" onClick={loadLocations}>Retry</button></div>}
 
           <label>Starting building
-            <select value={startId} onChange={changeSelection(setStartId)}>
-              <option value="">Select start…</option>
-              {locations.map((l) => <option key={l.locationId} value={l.locationId}>{l.name}</option>)}
-            </select>
+            <CampusSearch
+              placeholder="Search for a starting building"
+              onSelect={({ locationId }) => changeSelection(setStartId, locationId)}
+              onClear={() => changeSelection(setStartId, '')}
+            />
           </label>
           <label>Destination
-            <select value={destId} onChange={changeSelection(setDestId)}>
-              <option value="">Select destination…</option>
-              {locations.map((l) => <option key={l.locationId} value={l.locationId}>{l.name}</option>)}
-            </select>
+            <CampusSearch
+              placeholder="Search for a destination"
+              onSelect={({ locationId }) => changeSelection(setDestId, locationId)}
+              onClear={() => changeSelection(setDestId, '')}
+            />
           </label>
           {sameChoice && <div className="alert warn">Start and destination must be different.</div>}
           <button className="primary" disabled={!canSearch} onClick={() => findRoutes()}>{busy ? 'Searching…' : 'Find routes'}</button>
