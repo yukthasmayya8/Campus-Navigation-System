@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 /**
- * Autocomplete search input.
+ * Autocomplete search input with voice search (phone mic / Web Speech API).
  * Props:
  *   value       – current selected object (or null)
  *   onSelect    – called with the selected item
@@ -15,9 +15,12 @@ export default function SearchInput({ value, onSelect, fetchItems, placeholder =
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [cursor, setCursor] = useState(-1);
+  const [listening, setListening] = useState(false);
+  const [voiceMsg, setVoiceMsg] = useState('');
   const debounce = useRef(null);
   const inputRef = useRef(null);
   const listRef = useRef(null);
+  const recRef = useRef(null);
 
   // When value changes externally, sync display text
   useEffect(() => {
@@ -25,13 +28,14 @@ export default function SearchInput({ value, onSelect, fetchItems, placeholder =
     setOpen(false);
   }, [value]);
 
-  function handleChange(e) {
-    const q = e.target.value;
-    setText(q);
-    setCursor(-1);
-    if (!q.trim()) { setItems([]); setOpen(false); onSelect(null); return; }
+  useEffect(() => () => {
     clearTimeout(debounce.current);
-    debounce.current = setTimeout(async () => {
+    try { recRef.current?.abort?.(); recRef.current?.stop?.(); } catch {}
+  }, []);
+
+  function runSearch(q, { immediate = false } = {}) {
+    clearTimeout(debounce.current);
+    const doFetch = async () => {
       setLoading(true);
       try {
         const results = await fetchItems(q);
@@ -39,7 +43,18 @@ export default function SearchInput({ value, onSelect, fetchItems, placeholder =
         setOpen(results.length > 0);
       } catch { setItems([]); setOpen(false); }
       finally { setLoading(false); }
-    }, 280);
+    };
+    if (immediate) doFetch();
+    else debounce.current = setTimeout(doFetch, 280);
+  }
+
+  function handleChange(e) {
+    const q = e.target.value;
+    setText(q);
+    setCursor(-1);
+    setVoiceMsg('');
+    if (!q.trim()) { setItems([]); setOpen(false); onSelect(null); return; }
+    runSearch(q);
   }
 
   function handleSelect(item) {
@@ -47,6 +62,7 @@ export default function SearchInput({ value, onSelect, fetchItems, placeholder =
     setOpen(false);
     setItems([]);
     setCursor(-1);
+    setVoiceMsg('');
     onSelect(item);
   }
 
@@ -59,9 +75,47 @@ export default function SearchInput({ value, onSelect, fetchItems, placeholder =
   }
 
   function handleClear() {
-    setText(''); setItems([]); setOpen(false); setCursor(-1);
+    setText(''); setItems([]); setOpen(false); setCursor(-1); setVoiceMsg('');
     onSelect(null);
     inputRef.current?.focus();
+  }
+
+  function toggleVoice() {
+    const Ctor = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
+    if (!Ctor) { setVoiceMsg('Voice search is not supported in this browser. Please type instead.'); return; }
+    if (typeof window !== 'undefined' && window.isSecureContext === false) { setVoiceMsg('Voice search needs HTTPS or localhost.'); return; }
+    if (listening) {
+      try { recRef.current?.stop(); } catch {}
+      setListening(false);
+      return;
+    }
+    try { recRef.current?.abort?.(); } catch {}
+    const rec = new Ctor();
+    rec.lang = 'en-IN';
+    rec.continuous = false;
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    let got = false;
+    rec.onstart = () => { setListening(true); setVoiceMsg('Listening… say a building name.'); };
+    rec.onresult = (e) => {
+      const transcript = e.results?.[0]?.[0]?.transcript?.trim();
+      if (!transcript) return;
+      got = true;
+      setText(transcript);
+      setCursor(-1);
+      onSelect(null);
+      setVoiceMsg(`Heard “${transcript}”. Choose a suggestion below.`);
+      runSearch(transcript, { immediate: true });
+      inputRef.current?.focus();
+    };
+    rec.onerror = (e) => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') setVoiceMsg('Microphone access blocked. Allow mic permission or type instead.');
+      else if (e.error === 'no-speech') setVoiceMsg("Didn't catch that. Try again or type.");
+      else if (e.error !== 'aborted') setVoiceMsg('Voice search failed. You can still type.');
+    };
+    rec.onend = () => { recRef.current = null; setListening(false); if (!got) setVoiceMsg((m) => m.startsWith('Listening') ? '' : m); };
+    recRef.current = rec;
+    try { rec.start(); } catch { setListening(false); setVoiceMsg('Could not start voice search.'); }
   }
 
   return (
@@ -88,7 +142,18 @@ export default function SearchInput({ value, onSelect, fetchItems, placeholder =
         {text && !loading && (
           <button className="search-clear" onClick={handleClear} aria-label="Clear search" type="button">×</button>
         )}
+        <button
+          type="button"
+          className="search-clear"
+          onClick={toggleVoice}
+          aria-label={listening ? 'Stop voice search' : 'Search by voice'}
+          title={listening ? 'Stop voice search' : 'Search by voice'}
+          style={{ color: listening ? 'var(--danger)' : 'var(--muted)', fontSize: 16, padding: '0 10px' }}
+        >
+          {listening ? '■' : '🎤'}
+        </button>
       </div>
+      {voiceMsg && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{voiceMsg}</div>}
 
       {open && (
         <ul className="search-dropdown" id={`${id}-list`} ref={listRef} role="listbox">

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import TopNav from '../components/TopNav.jsx';
 import CampusMap from '../components/CampusMap.jsx';
 import SearchInput from '../components/SearchInput.jsx';
@@ -233,7 +234,7 @@ export default function PublicPage() {
 
   return (
     <div className="page">
-      <TopNav />
+      <TopNav right={<Link to="/admin/login" className="navlink">Admin Login</Link>} />
       {!online && (
         <div className="offline-bar">
           You are offline. {cache.routes ? `Using ${cache.routes} saved routes.` : 'No saved data yet — connect once to enable offline use.'}

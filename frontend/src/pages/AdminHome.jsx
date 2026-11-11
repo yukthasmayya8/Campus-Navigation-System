@@ -84,13 +84,16 @@ export default function AdminHome() {
   /* ── Auth check on mount ─────────────────────────────────────────── */
   useEffect(() => {
     me()
-      .then((data) => setUser(data.user ?? data))
-      .catch((err) => {
-        if (err?.status === 401 || err?.response?.status === 401) {
-          navigate('/admin/login');
-        } else {
-          navigate('/admin/login');
+      .then((data) => {
+        const u = data.user ?? data;
+        if (u?.role !== 'admin' && u?.role !== 'super_admin') {
+          logout().catch(() => {}).finally(() => navigate('/', { replace: true }));
+          return;
         }
+        setUser(u);
+      })
+      .catch(() => {
+        navigate('/admin/login', { replace: true });
       });
   }, [navigate]);
 

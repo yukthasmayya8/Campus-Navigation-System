@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { login, changePassword } from '../api.js';
+import { login, changePassword, logout } from '../api.js';
 
 export default function AdminLogin() {
   const nav = useNavigate();
@@ -16,7 +16,12 @@ export default function AdminLogin() {
     e.preventDefault(); setErr(''); setBusy(true);
     try {
       const { user } = await login(f.email, f.password);
-      if (user.forcePasswordChange) setMustChange(true); else nav('/admin');
+      if (user.role !== 'admin' && user.role !== 'super_admin') {
+        try { await logout(); } catch {}
+        nav('/', { replace: true });
+        return;
+      }
+      if (user.forcePasswordChange) setMustChange(true); else nav('/admin', { replace: true });
     } catch (ex) { setErr(ex.message); } finally { setBusy(false); }
   }
 
