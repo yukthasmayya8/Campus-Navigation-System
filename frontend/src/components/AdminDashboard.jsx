@@ -13,7 +13,14 @@ import { cx, styles } from "./ui";
 // Super Admin extras (Audit log, Accounts) are added only when isSuperAdmin. The server still checks every role.
 export function DashboardLayout() {
   const { user, isSuperAdmin, logout } = useAdminAuth();
-  const tabs = [["locations", "Locations"], ["routes", "Routes"], ["history", "History"], ...(isSuperAdmin ? [["audit", "Audit log"], ["accounts", "Accounts"]] : []), ["account", "My account"]];
+  const tabs = [
+    ["locations", "Locations"],
+    ["routes", "Routes"],
+    ["/admin/record", "Record route"],
+    ["history", "History"],
+    ...(isSuperAdmin ? [["audit", "Audit log"], ["accounts", "Accounts"]] : []),
+    ["account", "My account"],
+  ];
   return (
     <div className={styles.root}>
       <div className={styles.row}><strong>{user.name} · {isSuperAdmin ? "Super Admin" : "Admin"}</strong><button type="button" onClick={logout}>Log out</button></div>
@@ -31,7 +38,7 @@ export default function AdminDashboard() {
         <Route index element={<Navigate to="locations" replace />} />
         <Route path="locations" element={<LocationManagement />} />
         <Route path="routes" element={<RouteManagement />} />
-        <Route path="record" element={<Navigate to="../routes" replace />} />
+        <Route path="record" element={<Navigate to="/admin/record" replace />} />
         <Route path="history" element={<AdminHistory />} />
         <Route path="audit" element={<AdminGuard superOnly><AuditLog /></AdminGuard>} />
         <Route path="accounts" element={<AdminGuard superOnly><AdminAccountManagement /></AdminGuard>} />
