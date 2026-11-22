@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert';
-import { haversine, pathLength, locateOnPath, GpsFilter } from '../src/lib/geo.js';
+import { haversine, pathLength, locateOnPath, GpsFilter, splitAtGaps, splitAtTimeGaps, formatDistance, formatWalkTime, formatDuration } from '../src/lib/geo.js';
 import { PathTracker } from '../src/lib/tracker.js';
 import { alternativesFrom } from '../src/lib/routeLogic.js';
 
@@ -37,3 +37,33 @@ test('offline alternatives: reverse only for bidirectional, never one-way', () =
   assert.deepStrictEqual(res.map((r) => r.routeId), [1, 2]);
   assert.strictEqual(res[1].reversed, true); assert.strictEqual(res[1].points[0].latitude, 2);
 });
+
+test('splitAtGaps splits only at valid interior gap indexes', () => {
+  const pts = [0, 1, 2, 3].map((i) => ({ sequenceNumber: i + 1, latitude: 13 + i * M, longitude: 74 }));
+  assert.deepStrictEqual(splitAtGaps(pts, [1]).map((p) => p.length), [2, 2]);
+  assert.deepStrictEqual(splitAtGaps(pts, []).map((p) => p.length), [4]);
+  assert.deepStrictEqual(splitAtGaps(pts, [3, -1, 9]).map((p) => p.length), [4]); // endpoint/out-of-range gaps ignored
+  assert.deepStrictEqual(splitAtGaps([], [0]), []);
+});
+
+test('splitAtTimeGaps splits saved routes where fix timestamps jump', () => {
+  const at = (sec) => ({ sequenceNumber: sec + 1, latitude: 13 + sec * M, longitude: 74, recordedAt: new Date(1_700_000_000_000 + sec * 1000).toISOString() });
+  assert.deepStrictEqual(splitAtTimeGaps([at(0), at(1), at(2)]).map((p) => p.length), [3]);
+  assert.deepStrictEqual(splitAtTimeGaps([at(0), at(1), at(40), at(41)]).map((p) => p.length), [2, 2]);
+  // Seed data has no timestamps; it must stay one continuous line.
+  const noTime = [0, 1, 2].map((i) => ({ latitude: 13 + i * M, longitude: 74 }));
+  assert.deepStrictEqual(splitAtTimeGaps(noTime).map((p) => p.length), [3]);
+});
+
+test('display formatting: distances, walking time and recording duration', () => {
+  assert.strictEqual(formatDistance(450), '450 m');
+  assert.strictEqual(formatDistance(1234), '1.23 km');
+  assert.strictEqual(formatDistance(null), '—');
+  assert.strictEqual(formatWalkTime(30), '<1 min');
+  assert.strictEqual(formatWalkTime(800), '~10 min');
+  assert.strictEqual(formatWalkTime(4800), '1 h 0 min');
+  assert.strictEqual(formatDuration(0), '0:00');
+  assert.strictEqual(formatDuration(65000), '1:05');
+  assert.strictEqual(formatDuration(3661000), '1:01:01');
+});
+

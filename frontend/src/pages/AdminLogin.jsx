@@ -1,129 +1,109 @@
-import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { login, changePassword, logout } from '../api.js';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { changePassword, errorMessage, login, logout, me } from '../api.js';
 
 export default function AdminLogin() {
   const nav = useNavigate();
-  const [f, setF]           = useState({ email: '', password: '' });
-  const [pw, setPw]         = useState({ next: '' });
+  const [form, setForm] = useState({ email: '', password: '' });
+  const [next, setNext] = useState('');
   const [mustChange, setMustChange] = useState(false);
   const [showPw, setShowPw] = useState(false);
-  const [showNew, setShowNew] = useState(false);
-  const [err, setErr]       = useState('');
-  const [busy, setBusy]     = useState(false);
+  const [showNext, setShowNext] = useState(false);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    me().then(({ user }) => {
+      if ((user?.role === 'admin' || user?.role === 'super_admin') && !user.forcePasswordChange) nav('/admin', { replace: true });
+    }).catch(() => { /* not signed in */ });
+  }, [nav]);
 
   async function submit(e) {
-    e.preventDefault(); setErr(''); setBusy(true);
+    e.preventDefault();
+    setErr(''); setBusy(true);
     try {
-      const { user } = await login(f.email, f.password);
+      const { user } = await login(form.email, form.password);
       if (user.role !== 'admin' && user.role !== 'super_admin') {
-        try { await logout(); } catch {}
+        await logout().catch(() => {});
         nav('/', { replace: true });
         return;
       }
-      if (user.forcePasswordChange) setMustChange(true); else nav('/admin', { replace: true });
-    } catch (ex) { setErr(ex.message); } finally { setBusy(false); }
+      if (user.forcePasswordChange) setMustChange(true);
+      else nav('/admin', { replace: true });
+    } catch (ex) { setErr(errorMessage(ex)); } finally { setBusy(false); }
   }
 
-  async function submitPw(e) {
-    e.preventDefault(); setErr(''); setBusy(true);
-    try { await changePassword(f.password, pw.next); nav('/admin'); }
-    catch (ex) { setErr(ex.details?.[0]?.message || ex.message); } finally { setBusy(false); }
+  async function submitPassword(e) {
+    e.preventDefault();
+    setErr(''); setBusy(true);
+    try {
+      await changePassword(form.password, next);
+      nav('/admin', { replace: true });
+    } catch (ex) { setErr(errorMessage(ex)); } finally { setBusy(false); }
   }
 
   return (
     <div className="login-page">
       <div className="login-card">
         <div className="login-logo">
-          <div className="login-logo-icon">🧭</div>
+          <div className="login-logo-icon" aria-hidden="true">🧭</div>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 17, letterSpacing: '-0.3px' }}>SMVITM Navigate</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Administrator Portal</div>
+            <div style={{ fontWeight: 700, fontSize: 17 }}>SMVITM Navigate</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Administrator portal</div>
           </div>
         </div>
 
         {!mustChange ? (
-          <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <form className="stack" onSubmit={submit}>
             <div>
-              <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Sign in</h2>
-              <p style={{ color: 'var(--muted)', fontSize: 14 }}>Enter your admin credentials below</p>
+              <h2 style={{ fontSize: 22 }}>Sign in</h2>
+              <p className="muted" style={{ fontSize: 14 }}>Use your campus administrator credentials.</p>
             </div>
 
-            <label htmlFor="email">
-              Email address
-              <input
-                id="email"
-                type="email" required
-                autoComplete="username"
-                value={f.email}
-                onChange={(e) => setF({ ...f, email: e.target.value })}
-                placeholder="admin@smvitm.ac.in"
-              />
+            <label htmlFor="email">Email address
+              <input id="email" type="email" required autoComplete="username" value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="admin@smvitm.ac.in" />
             </label>
 
-            <label htmlFor="password">
-              Password
+            <label htmlFor="password">Password
               <div className="pw-toggle">
-                <input
-                  id="password"
-                  type={showPw ? 'text' : 'password'}
-                  required
-                  autoComplete="current-password"
-                  value={f.password}
-                  onChange={(e) => setF({ ...f, password: e.target.value })}
-                  placeholder="Enter your password"
-                />
-                <button type="button" onClick={() => setShowPw((v) => !v)} aria-label="Toggle password visibility">
+                <input id="password" type={showPw ? 'text' : 'password'} required autoComplete="current-password"
+                  value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Enter your password" />
+                <button type="button" onClick={() => setShowPw((v) => !v)} aria-label={showPw ? 'Hide password' : 'Show password'}>
                   {showPw ? '🙈' : '👁'}
                 </button>
               </div>
             </label>
 
-            {err && <div className="alert error">{err}</div>}
+            {err && <div className="alert error" role="alert">{err}</div>}
 
-            <button id="login-btn" className="primary" type="submit" disabled={busy}>
-              {busy ? '⏳ Signing in…' : 'Sign in →'}
-            </button>
+            <button type="submit" className="primary" disabled={busy}>{busy ? 'Signing in…' : 'Sign in →'}</button>
 
-            <div style={{ textAlign: 'center' }}>
-              <Link to="/" style={{ fontSize: 13, color: 'var(--muted)', textDecoration: 'none' }}>
-                ← Back to campus map
-              </Link>
+            <div className="login-foot">
+              <Link to="/">← Back to campus map</Link>
             </div>
           </form>
         ) : (
-          <form onSubmit={submitPw} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <form className="stack" onSubmit={submitPassword}>
             <div>
-              <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Set new password</h2>
-              <p style={{ color: 'var(--muted)', fontSize: 14 }}>You must change your temporary password before continuing.</p>
+              <h2 style={{ fontSize: 22 }}>Set a new password</h2>
+              <p className="muted" style={{ fontSize: 14 }}>Your temporary password must be changed before you can continue.</p>
             </div>
 
-            <label htmlFor="new-password">
-              New password
+            <label htmlFor="new-password">New password
               <div className="pw-toggle">
-                <input
-                  id="new-password"
-                  type={showNew ? 'text' : 'password'}
-                  required minLength={10}
-                  autoComplete="new-password"
-                  value={pw.next}
-                  onChange={(e) => setPw({ next: e.target.value })}
-                  placeholder="At least 10 characters"
-                />
-                <button type="button" onClick={() => setShowNew((v) => !v)} aria-label="Toggle new password visibility">
-                  {showNew ? '🙈' : '👁'}
+                <input id="new-password" type={showNext ? 'text' : 'password'} required minLength={10}
+                  autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} placeholder="At least 10 characters" />
+                <button type="button" onClick={() => setShowNext((v) => !v)} aria-label={showNext ? 'Hide password' : 'Show password'}>
+                  {showNext ? '🙈' : '👁'}
                 </button>
               </div>
             </label>
-            <p className="muted" style={{ fontSize: 12, margin: '-8px 0' }}>
-              Must be at least 10 characters with uppercase, lowercase, and a number.
-            </p>
+            <p className="muted" style={{ fontSize: 12, marginTop: -8 }}>At least 10 characters with uppercase, lowercase and a number.</p>
 
-            {err && <div className="alert error">{err}</div>}
+            {err && <div className="alert error" role="alert">{err}</div>}
 
-            <button id="change-pw-btn" className="primary" type="submit" disabled={busy}>
-              {busy ? '⏳ Saving…' : 'Set password & continue →'}
-            </button>
+            <button type="submit" className="primary" disabled={busy}>{busy ? 'Saving…' : 'Set password & continue →'}</button>
           </form>
         )}
       </div>
