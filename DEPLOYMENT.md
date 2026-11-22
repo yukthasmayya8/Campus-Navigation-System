@@ -79,7 +79,7 @@ The repository includes a `render.yaml` Render Blueprint for the Express API:
    - `CORS_ORIGINS`: the exact Vercel frontend origin, for example `https://your-app.vercel.app`
    - `PUBLIC_BASE_URL`: the Render service URL, for example `https://campus-navigation-api.onrender.com`
    - `FRONTEND_URL`: the same Vercel frontend origin
-4. Deploy. Render runs `npm run migrate` before the API starts.
+4. Deploy. Render runs `npm run migrate && npm start`, so the schema is applied when the API starts.
 5. Verify `https://your-render-service.onrender.com/api/health`.
 
 Render does not preserve files uploaded under `backend/uploads` across deploys or restarts.

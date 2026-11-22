@@ -5,8 +5,7 @@ services:
     rootDir: backend
     plan: free
     buildCommand: npm install --omit=dev
-    preDeployCommand: npm run migrate
-    startCommand: npm start
+    startCommand: npm run migrate && npm start
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
