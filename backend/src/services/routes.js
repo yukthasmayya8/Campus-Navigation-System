@@ -73,14 +73,19 @@ async function listAdmin({ status, sourceLocationId, destinationLocationId, limi
   const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
   params.push(limit, offset);
   const [{ rows }, { rows: c }] = await Promise.all([
-    query(`SELECT ${RCOLS}, (SELECT count(*) FROM route_points p WHERE p.route_id = routes.route_id) AS point_count
+    query(`SELECT ${RCOLS},
+             (SELECT count(*) FROM route_points p WHERE p.route_id = routes.route_id) AS point_count,
+             (SELECT ST_Length(ST_MakeLine(p.geom::geometry ORDER BY p.sequence_number)::geography) FROM route_points p WHERE p.route_id = routes.route_id) AS distance_m
              FROM routes ${w} ORDER BY route_id DESC LIMIT $${params.length - 1} OFFSET $${params.length}`, params),
     query(`SELECT count(*) AS n FROM routes ${w}`, params.slice(0, -2)),
   ]);
   return { total: c[0].n, limit, offset, items: rows.map((r) => ({ ...mapRoute(r), pointCount: r.point_count })) };
 }
 async function getAdmin(id, db = { query }) {
-  const { rows } = await db.query(`SELECT ${RCOLS} FROM routes WHERE route_id=$1`, [id]);
+  const { rows } = await db.query(
+    `SELECT ${RCOLS},
+       (SELECT ST_Length(ST_MakeLine(p.geom::geometry ORDER BY p.sequence_number)::geography) FROM route_points p WHERE p.route_id = routes.route_id) AS distance_m
+       FROM routes WHERE route_id=$1`, [id]);
   if (!rows[0]) throw notFound('Route');
   return (await hydrate(db, rows))[0];
 }

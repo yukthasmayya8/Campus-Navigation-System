@@ -1,6 +1,11 @@
-/** Pure geo helpers for navigation (no DOM, unit-tested). Distances in metres. */
+/** Pure geo helpers for navigation and recording (no DOM, unit-tested). Distances in metres. */
 const R = 6371008.8;
 const rad = (d) => (d * Math.PI) / 180;
+
+export const MAX_ACCURACY_M = 25;
+export const MIN_SPACING_M = 3;
+export const MAX_SPEED_MPS = 10;
+export const GAP_AFTER_MS = 15000;
 
 export function haversine(a, b) {
   const dLat = rad(b.latitude - a.latitude), dLng = rad(b.longitude - a.longitude);
@@ -18,6 +23,14 @@ export function pathLength(points) {
   let d = 0;
   for (let i = 1; i < points.length; i++) d += haversine(points[i - 1], points[i]);
   return d;
+}
+
+/**
+ * Sum of walkable polyline lengths. Gaps between segments are deliberately excluded:
+ * a recorded GPS gap is a break in evidence, not a walked distance.
+ */
+export function segmentsLength(segments = []) {
+  return segments.reduce((total, seg) => total + pathLength(seg), 0);
 }
 
 /**
@@ -68,3 +81,60 @@ export class GpsFilter {
     return { ok: true, position: { latitude: this.last.latitude, longitude: this.last.longitude }, accuracy };
   }
 }
+
+/** Split a recorded polyline wherever a signal gap was explicitly marked. */
+export function splitAtGaps(points = [], gaps = []) {
+  if (!points.length) return [];
+  const breaks = new Set(gaps.filter((n) => Number.isInteger(n) && n >= 0 && n < points.length - 1));
+  const parts = [];
+  let current = [];
+  points.forEach((p, i) => {
+    current.push(p);
+    if (breaks.has(i)) { parts.push(current); current = []; }
+  });
+  if (current.length) parts.push(current);
+  return parts;
+}
+
+/**
+ * Split a saved route where the recorded timestamps jump by more than `maxGapMs`.
+ * Published routes only carry points, so the timestamp gap is the durable evidence of an
+ * interruption; drawing through it would silently imply the segment was walked.
+ */
+export function splitAtTimeGaps(points = [], maxGapMs = GAP_AFTER_MS) {
+  if (!points.length) return [];
+  const parts = [];
+  let current = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const before = Date.parse(points[i - 1]?.recordedAt);
+    const after = Date.parse(points[i]?.recordedAt);
+    if (Number.isFinite(before) && Number.isFinite(after) && after - before > maxGapMs) {
+      parts.push(current);
+      current = [points[i]];
+    } else current.push(points[i]);
+  }
+  parts.push(current);
+  return parts;
+}
+
+export const formatDistance = (m) => {
+  if (m == null || !Number.isFinite(m)) return '—';
+  return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`;
+};
+
+/** Walking estimate at 80 m/min. */
+export const formatWalkTime = (m) => {
+  if (m == null || !Number.isFinite(m)) return '';
+  const mins = Math.round(m / 80);
+  if (mins < 1) return '<1 min';
+  return mins >= 60 ? `${Math.floor(mins / 60)} h ${mins % 60} min` : `~${mins} min`;
+};
+
+export const formatDuration = (ms) => {
+  const total = Math.max(0, Math.floor((ms || 0) / 1000));
+  const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
+};
+
+export const isSecureContextOk = () =>
+  typeof window !== 'undefined' && (window.isSecureContext || window.location.hostname === 'localhost');
