@@ -68,6 +68,41 @@ npm run dev   # http://localhost:5173 (proxies /api and /uploads to backend)
 
 ## Production build & deployment
 
+### Backend (Render)
+
+The repository includes a `render.yaml` Render Blueprint for the Express API:
+
+1. Push this repository to GitHub.
+2. In Render, choose **New > Blueprint** and select the repository.
+3. Set these secret/environment values when prompted:
+   - `DATABASE_URL`: the Neon PostgreSQL connection string
+   - `CORS_ORIGINS`: the exact Vercel frontend origin, for example `https://your-app.vercel.app`
+   - `PUBLIC_BASE_URL`: the Render service URL, for example `https://campus-navigation-api.onrender.com`
+   - `FRONTEND_URL`: the same Vercel frontend origin
+4. Deploy. Render runs `npm run migrate` before the API starts.
+5. Verify `https://your-render-service.onrender.com/api/health`.
+
+Render does not preserve files uploaded under `backend/uploads` across deploys or restarts.
+For production images, configure persistent object storage before enabling uploads; the `local` storage driver
+is suitable only for a temporary deployment.
+
+### Frontend (Vercel)
+
+Import the GitHub repository into Vercel and use these project settings:
+
+- Framework preset: `Vite`
+- Root directory: `frontend`
+- Build command: `npm run build`
+- Output directory: `dist`
+- Install command: `npm install`
+
+Set this Vercel environment variable:
+
+- `VITE_API_URL=https://your-render-service.onrender.com`
+
+Redeploy the frontend after changing `VITE_API_URL`. Its origin must be included in Render's `CORS_ORIGINS`,
+and `COOKIE_SECURE=true` with `SameSite=None` is used automatically for this cross-origin setup.
+
 ### Frontend (Netlify/Vercel/static host)
 ```bash
 cd frontend
