@@ -25,8 +25,7 @@ export default function AdminLogin() {
       const { user } = await login(form.email, form.password);
       if (user.role !== 'admin' && user.role !== 'super_admin') {
         await logout().catch(() => {});
-        try { sessionStorage.setItem('campus-nav-notice', 'Admin sign-in is for campus staff. You are on the public campus map — no account is needed to search routes or navigate.'); } catch { /* ignore */ }
-    nav('/', { replace: true });
+        nav('/', { replace: true });
         return;
       }
       if (user.forcePasswordChange) setMustChange(true);
@@ -34,8 +33,7 @@ export default function AdminLogin() {
     } catch (ex) {
       if (ex?.status === 401 || ex?.status === 403) {
         await logout().catch(() => {});
-        try { sessionStorage.setItem('campus-nav-notice', 'Admin sign-in is for campus staff. You are on the public campus map — no account is needed to search routes or navigate.'); } catch { /* ignore */ }
-    nav('/', { replace: true });
+        nav('/', { replace: true });
         return;
       }
       setErr(errorMessage(ex));
