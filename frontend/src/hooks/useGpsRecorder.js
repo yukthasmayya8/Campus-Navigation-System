@@ -48,6 +48,7 @@ export function useGpsRecorder({ onPoint } = {}) {
   const pauseAtRef = useRef(null);
   const restoredAtRef = useRef(Number.isFinite(Date.parse(restored.current?.savedAt)) ? Date.parse(restored.current.savedAt) : null);
   const interruptionAtRef = useRef(null);
+  const hiddenAtRef = useRef(null);
   const statusRef = useRef(status);
   const onPointRef = useRef(onPoint);
   onPointRef.current = onPoint;
@@ -183,7 +184,7 @@ export function useGpsRecorder({ onPoint } = {}) {
     persist(keepPoints ? pointsRef.current : [], keepPoints ? gapsRef.current : [], true);
   }, [persist, startTimer, watchPosition]);
 
-  const pause = useCallback(() => {
+  const pause = useCallback((reason = 'Recording paused. Tap Resume before you start walking again.') => {
     if (statusRef.current !== 'recording') return;
     stopWatch(); stopTimer();
     if (startedAtRef.current) { accumulatedRef.current += Date.now() - startedAtRef.current; startedAtRef.current = null; }
@@ -191,7 +192,7 @@ export function useGpsRecorder({ onPoint } = {}) {
     pauseAtRef.current = Date.now();
     statusRef.current = 'paused';
     setStatus('paused');
-    setMessage('Recording paused. Tap Resume before you start walking again.');
+    setMessage(reason);
     persist(pointsRef.current, gapsRef.current, true);
   }, [persist, stopTimer, stopWatch]);
 
@@ -236,14 +237,52 @@ export function useGpsRecorder({ onPoint } = {}) {
   }, [stopTimer, stopWatch]);
 
   useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === 'visible' && statusRef.current === 'recording') {
-        setMessage('Back in the app. Check that the point count is still increasing; mobile browsers may pause GPS while the screen is locked.');
+    const onHidden = () => {
+      if (statusRef.current === 'recording') {
+        hiddenAtRef.current = Date.now();
+        persist(pointsRef.current, gapsRef.current, true);
       }
     };
-    document.addEventListener('visibilitychange', onVisible);
+    const onVisible = () => {
+      const hiddenFor = hiddenAtRef.current ? Date.now() - hiddenAtRef.current : 0;
+      hiddenAtRef.current = null;
+      if (statusRef.current !== 'recording') return;
+      if (hiddenFor > GAP_AFTER_MS) {
+        markGap();
+        pause('Recording paused because the app was in the background or the screen was locked for a while. A gap was marked; tap Resume to continue.');
+        return;
+      }
+      if (hiddenFor > 3000) {
+        interruptionAtRef.current = Date.now();
+        watchPosition();
+        setMessage('Back in the app. Waiting for the next GPS fix; mobile browsers can pause GPS in the background.');
+      } else {
+        watchPosition();
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') onHidden();
+      else onVisible();
+    };
+    const onFreeze = () => {
+      if (statusRef.current === 'recording') {
+        hiddenAtRef.current = hiddenAtRef.current || Date.now();
+        persist(pointsRef.current, gapsRef.current, true);
+      }
+    };
+    const onResume = () => {
+      if (document.visibilityState === 'visible') onVisible();
+    };
+    const onPageHide = () => persist(pointsRef.current, gapsRef.current, statusRef.current === 'recording' || statusRef.current === 'paused');
+    document.addEventListener('visibilitychange', onVisibility);
+    document.addEventListener('freeze', onFreeze);
+    document.addEventListener('resume', onResume);
+    window.addEventListener('pagehide', onPageHide);
     return () => {
-      document.removeEventListener('visibilitychange', onVisible);
+      document.removeEventListener('visibilitychange', onVisibility);
+      document.removeEventListener('freeze', onFreeze);
+      document.removeEventListener('resume', onResume);
+      window.removeEventListener('pagehide', onPageHide);
       persist(pointsRef.current, gapsRef.current, statusRef.current === 'recording' || statusRef.current === 'paused');
       stopWatch(); stopTimer();
     };

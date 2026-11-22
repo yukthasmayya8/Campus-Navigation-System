@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert';
-import { haversine, pathLength, locateOnPath, GpsFilter, splitAtGaps, splitAtTimeGaps, formatDistance, formatWalkTime, formatDuration } from '../src/lib/geo.js';
+import { haversine, pathLength, locateOnPath, GpsFilter, splitAtGaps, splitAtTimeGaps, formatDistance, formatWalkTime, formatDuration, segmentsLength } from '../src/lib/geo.js';
 import { PathTracker } from '../src/lib/tracker.js';
 import { alternativesFrom } from '../src/lib/routeLogic.js';
 
@@ -67,3 +67,18 @@ test('display formatting: distances, walking time and recording duration', () =>
   assert.strictEqual(formatDuration(3661000), '1:01:01');
 });
 
+
+test('PathTracker: a recorded GPS gap is not counted as walkable distance', () => {
+  const gapM = 30;
+  const seg1 = [0, 50].map((m) => ({ latitude: 13 + m * M, longitude: 74 }));
+  const seg2 = [50 + gapM, 100 + gapM].map((m) => ({ latitude: 13 + m * M, longitude: 74 }));
+  const allPoints = [...seg1, ...seg2];
+  const tr = new PathTracker(allPoints, { segments: [seg1, seg2] });
+  let t = 0;
+  const fixAt = (pt) => ({ latitude: pt.latitude, longitude: pt.longitude, accuracy: 5, timestamp: (t += 20000) });
+  const r1 = tr.update(fixAt(seg1[1]));
+  // Remaining distance is only the later walkable segment; the 30 m gap jump is excluded.
+  near(r1.remainingMeters, pathLength(seg2), 2);
+  assert.strictEqual(r1.arrived, false);
+  assert.ok(segmentsLength([seg1, seg2]) < pathLength(allPoints));
+});

@@ -3,7 +3,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import TopNav from '../components/TopNav.jsx';
 import MapView from '../components/MapView.jsx';
 import { useGpsRecorder } from '../hooks/useGpsRecorder.js';
+import { useWakeLock } from '../hooks/useWakeLock.js';
 import { splitAtGaps, formatDuration, formatDistance, pathLength } from '../lib/geo.js';
+import { backgroundHint, wakeLockHint } from '../lib/platform.js';
 import {
   adminLocations, appendRoutePoints, createDraftRoute, discardRoute, errorMessage,
   me, publishRoute, updateRoute,
@@ -45,6 +47,7 @@ export default function AdminRecorder() {
   const [publishAck, setPublishAck] = useState(false);
 
   const rec = useGpsRecorder();
+  const wake = useWakeLock(rec.status === 'recording');
   const flushRef = useRef(null);
   const pointsRef = useRef(rec.points);
   const uploadedRef = useRef(uploadedSeq);
@@ -166,6 +169,7 @@ export default function AdminRecorder() {
       }
       setPhase('recording');
       rec.start({ keepPoints: false });
+      wake.acquire();
       setMsg('Recording. Stand at the start building and begin walking; points are only saved once GPS accuracy is good enough.');
     } catch (e) {
       setErr(errorMessage(e));
@@ -352,6 +356,7 @@ export default function AdminRecorder() {
                     </div>
                   </div>
                   {rec.accuracy != null && <span className={`chip ${rec.accuracy <= 25 ? 'green' : 'amber'}`}>±{Math.round(rec.accuracy)} m</span>}
+                   {wake.supported && <span className={`chip ${wake.state === 'on' ? 'green' : 'amber'}`}>{wake.state === 'on' ? 'Screen awake' : 'Screen may lock'}</span>}
                 </div>
 
                 <div className="rec-stats">
@@ -361,7 +366,11 @@ export default function AdminRecorder() {
                 </div>
 
                 {rec.gaps.length > 0 && <div className="alert warn">{rec.gaps.length} GPS gap{rec.gaps.length > 1 ? 's' : ''} marked. The path is split at each gap; publishing needs your acknowledgement.</div>}
-                <div className="alert warn">Keep the screen on and the app in the foreground. Mobile browsers may stop GPS while locked; a long interruption is marked as a gap, never silently bridged.</div>
+                <div className={`alert ${wake.supported && wake.state !== 'error' ? 'info' : 'warn'}`}>
+                  {wake.supported
+                    ? `${wake.state === 'on' ? 'Screen wake lock is on.' : 'Screen wake lock requested.'} ${wakeLockHint()}`
+                    : wakeLockHint()} {backgroundHint()}
+                </div>
 
                 {phase === 'recording' && (
                   <>

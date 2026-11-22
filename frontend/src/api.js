@@ -48,6 +48,8 @@ const qs = (params = {}) => {
   return t ? `?${t}` : '';
 };
 
+import { haversine } from './lib/geo.js';
+
 /* ── Public reads (offline-aware) ─────────────────────────────────────────── */
 let offline = null;
 async function offlineHelpers() {
@@ -101,7 +103,6 @@ export async function getNearest(lat, lng) {
   catch (e) {
     if (!isNetwork(e)) throw e;
     const { readCache } = await offlineHelpers();
-    const { haversine } = await import('./lib/geo.js');
     const c = await readCache().catch(() => null);
     if (!c) throw e;
     const p = { latitude: lat, longitude: lng };

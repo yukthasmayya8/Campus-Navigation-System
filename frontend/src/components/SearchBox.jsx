@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { voiceHint } from '../lib/platform.js';
 
 const getRecognition = () =>
   typeof window === 'undefined' ? null : window.SpeechRecognition || window.webkitSpeechRecognition || null;
@@ -50,6 +51,18 @@ export default function SearchBox({ id, value, onSelect, fetchItems, placeholder
       rec.onstart = rec.onresult = rec.onerror = rec.onend = rec.onnomatch = null;
       try { rec.abort(); } catch { /* already stopped */ }
     }
+  }, []);
+
+  // Release the microphone if the tab is suspended/hidden (iOS/Android behaviour).
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === 'hidden') {
+        const rec = recRef.current;
+        if (rec) { try { rec.abort(); } catch { /* ignore */ } }
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
   }, []);
 
   function runSearch(query, { immediate = false } = {}) {
@@ -106,7 +119,7 @@ export default function SearchBox({ id, value, onSelect, fetchItems, placeholder
 
   function toggleVoice() {
     if (!supported) {
-      setVoice({ state: 'unsupported', message: getRecognition() ? VOICE_MESSAGE.insecure : VOICE_MESSAGE.unsupported });
+      setVoice({ state: 'unsupported', message: `${getRecognition() ? VOICE_MESSAGE.insecure : VOICE_MESSAGE.unsupported} ${voiceHint()}` });
       return;
     }
     if (voice.state === 'listening') { stopVoice(); return; }
@@ -127,7 +140,7 @@ export default function SearchBox({ id, value, onSelect, fetchItems, placeholder
     rec.onnomatch = () => setVoice({ state: 'nomatch', message: VOICE_MESSAGE.nomatch });
     rec.onerror = (e) => {
       got = true;
-      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') setVoice({ state: 'denied', message: VOICE_MESSAGE.denied });
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') setVoice({ state: 'denied', message: `${VOICE_MESSAGE.denied} ${voiceHint()}` });
       else if (e.error === 'no-speech') setVoice({ state: 'nomatch', message: VOICE_MESSAGE.nomatch });
       else if (e.error === 'audio-capture') setVoice({ state: 'error', message: VOICE_MESSAGE.mic });
       else if (e.error === 'network') setVoice({ state: 'error', message: VOICE_MESSAGE.network });

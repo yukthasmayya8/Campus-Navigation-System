@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import TopNav from '../components/TopNav.jsx';
 import LocationManager from '../components/admin/LocationManager.jsx';
@@ -15,6 +15,8 @@ export default function AdminHome() {
   const [statsKey, setStatsKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
+  const tabsRef = useRef(null);
+  const [tabOverflow, setTabOverflow] = useState(false);
 
   useEffect(() => {
     me()
@@ -44,6 +46,37 @@ export default function AdminHome() {
       });
     }).catch((e) => setErr(errorMessage(e))).finally(() => setLoading(false));
   }, [user, statsKey]);
+
+  // Cross-tab / cross-session freshness: other admins (or another tab) can change data.
+  useEffect(() => {
+    if (!user) return;
+    const refresh = () => { if (!document.hidden) setStatsKey((k) => k + 1); };
+    const onVis = () => { if (document.visibilityState === 'visible') refresh(); };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', onVis);
+    const id = setInterval(refresh, 45000);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', onVis);
+      clearInterval(id);
+    };
+  }, [user]);
+
+  // Tab strip affordance: detect horizontal overflow and keep the active tab visible.
+  useEffect(() => {
+    const el = tabsRef.current;
+    if (!el) return;
+    const check = () => setTabOverflow(el.scrollWidth - el.clientWidth > 4);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    window.addEventListener('resize', check);
+    return () => { ro.disconnect(); window.removeEventListener('resize', check); };
+  }, [tabs.length]);
+
+  useEffect(() => {
+    tabsRef.current?.querySelector('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+  }, [tab]);
 
   const refreshStats = () => setStatsKey((k) => k + 1);
 
@@ -107,19 +140,22 @@ export default function AdminHome() {
           </div>
         </div>
 
-        <div className="tabs" role="tablist">
-          {tabs.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              role="tab"
-              aria-selected={tab === t.key}
-              className={`tab${tab === t.key ? ' active' : ''}`}
-              onClick={() => setTab(t.key)}
-            >
-              {t.label}
-            </button>
-          ))}
+        <div className={`tabs-wrap${tabOverflow ? ' has-overflow' : ''}`}>
+          <div className="tabs" role="tablist" ref={tabsRef}>
+            {tabs.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                role="tab"
+                aria-selected={tab === t.key}
+                className={`tab${tab === t.key ? ' active' : ''}`}
+                onClick={() => setTab(t.key)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          {tabOverflow && <span className="tabs-hint" aria-hidden="true">Swipe →</span>}
         </div>
 
         {tab === 'locations' && <LocationManager user={user} onChange={refreshStats} />}

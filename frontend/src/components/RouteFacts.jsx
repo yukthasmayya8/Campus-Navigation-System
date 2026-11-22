@@ -23,7 +23,7 @@ export function routeGapCount(route) {
 
 function TriChip({ value, yes, no, unknown, tone = 'green' }) {
   if (value === true) return <span className={`chip ${tone === 'green' ? 'green' : 'red'}`}>{yes}</span>;
-  if (value === false) return <span className="chip green">{no}</span>;
+  if (value === false) return no ? <span className="chip green">{no}</span> : null;
   return unknown ? <span className="chip amber">{unknown}</span> : null;
 }
 

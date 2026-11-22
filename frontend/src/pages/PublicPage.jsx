@@ -5,11 +5,16 @@ import SearchBox from '../components/SearchBox.jsx';
 import LocationDetails from '../components/LocationDetails.jsx';
 import { getLocations, searchLocations, getRoutes, getNearest, syncOfflineData, offlineStatus } from '../api.js';
 import { PathTracker } from '../lib/tracker.js';
-import { formatDistance, formatWalkTime, splitAtTimeGaps } from '../lib/geo.js';
+import { formatDistance, formatWalkTime, splitAtTimeGaps, GAP_AFTER_MS, pathLength } from '../lib/geo.js';
+import { useWakeLock } from '../hooks/useWakeLock.js';
+import { backgroundHint, wakeLockHint } from '../lib/platform.js';
+import RouteFacts from '../components/RouteFacts.jsx';
 
 const ARRIVAL_M = 15;
 const OFFPATH_M = 30;
 const OFFPATH_FIXES = 3;
+
+let initialNotice = null;
 
 const inferCategory = (loc) => {
   const text = `${loc.name} ${loc.description || ''}`.toLowerCase();
@@ -20,12 +25,6 @@ const inferCategory = (loc) => {
   if (/lab|computer|engineering|block|academic|department|class/.test(text)) return 'Academic';
   return 'Other';
 };
-
-const triChip = (value, yes, no) => (
-  value === true ? <span className="chip green">✓ {yes}</span>
-    : value === false ? <span className="chip red">✗ {no}</span>
-      : <span className="chip amber">Not verified</span>
-);
 
 const itemFor = (l) => ({ id: l.locationId, label: l.name, sublabel: l.description?.slice(0, 64) || '', icon: '🏢', loc: l });
 
@@ -45,7 +44,14 @@ export default function PublicPage() {
   const [pos, setPos] = useState(null);
   const [navInfo, setNavInfo] = useState(null);
   const [gpsNote, setGpsNote] = useState('');
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState(() => {
+    try {
+      const m = sessionStorage.getItem('campus-nav-notice');
+      if (m) { sessionStorage.removeItem('campus-nav-notice'); initialNotice = m; return m; }
+      if (initialNotice) { const m = initialNotice; initialNotice = null; return m; }
+    } catch { /* ignore */ }
+    return '';
+  });
   const [locatingMe, setLocatingMe] = useState(false);
   const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
   const [cache, setCache] = useState({ syncedAt: null, routes: 0 });
@@ -57,7 +63,9 @@ export default function PublicPage() {
   const tracker = useRef(null);
   const reqSeq = useRef(0);
   const posRef = useRef(null);
-  const wakeLock = useRef(null);
+  const navigatingRef = useRef(false);
+  const hiddenAtRef = useRef(null);
+  const wake = useWakeLock(navigating);
 
   const refreshCache = () => offlineStatus().then(setCache).catch(() => {});
   const loadLocations = useCallback(() => {
@@ -78,19 +86,34 @@ export default function PublicPage() {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
       if (watchId.current !== null) navigator.geolocation.clearWatch(watchId.current);
-      wakeLock.current?.release?.().catch?.(() => {});
+      wake.release();
     };
   }, [loadLocations]);
 
-  const fetchSuggestions = useCallback(async (q) => (await searchLocations(q, 8)).map(itemFor), []);
+  // Keep the same recorded route across tab suspension / screen lock, but never
+  // auto-reroute or switch routes. A long backgrounding only produces a notice.
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        if (navigatingRef.current) hiddenAtRef.current = Date.now();
+        return;
+      }
+      const hiddenFor = hiddenAtRef.current ? Date.now() - hiddenAtRef.current : 0;
+      hiddenAtRef.current = null;
+      if (!navigatingRef.current) return;
+      if (hiddenFor > GAP_AFTER_MS) {
+        setGpsNote('GPS was paused while this tab was in the background or the screen was locked. The recorded route and your progress are unchanged; no rerouting was performed. Keep the screen on and wait for the next fix.');
+      } else if (hiddenFor > 3000) {
+        setGpsNote('Back in the app. Mobile browsers can pause GPS in the background; waiting for a fresh fix.');
+      }
+      wake.acquire();
+      startWatch();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [wake]);
 
-  async function acquireWakeLock() {
-    if (!('wakeLock' in navigator)) return;
-    try { wakeLock.current = await navigator.wakeLock.request('screen'); } catch { /* optional */ }
-  }
-  async function releaseWakeLock() {
-    try { await wakeLock.current?.release?.(); } catch { /* ignore */ } finally { wakeLock.current = null; }
-  }
+  const fetchSuggestions = useCallback(async (q) => (await searchLocations(q, 8)).map(itemFor), []);
 
   function stopWatch() {
     if (watchId.current !== null) {
@@ -98,10 +121,52 @@ export default function PublicPage() {
       watchId.current = null;
     }
   }
+
+  async function startWatch() {
+    stopWatch();
+    watchId.current = navigator.geolocation.watchPosition(
+      (p) => {
+        if (!tracker.current) return;
+        const r = tracker.current.update({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy, timestamp: p.timestamp });
+        if (!r.ok) {
+          setGpsNote(r.reason === 'low_accuracy'
+            ? `GPS signal weak (±${Math.round(p.coords.accuracy || 0)} m). Waiting for a better fix…`
+            : r.reason === 'jump' ? 'Ignored an unreliable GPS jump. Keep walking.'
+              : 'Waiting for a valid GPS fix…');
+          return;
+        }
+        setGpsNote(''); setPos({ ...r.position, accuracy: r.accuracy });
+        posRef.current = r.position;
+        setNavInfo(r);
+      },
+      (err) => setGpsNote(err.code === 1
+        ? 'Location permission denied. Allow location access to navigate.'
+        : err.code === 2 ? 'Position unavailable (weak GPS). The route stays visible on the map.'
+          : 'Timed out getting your position. Retrying…'),
+      { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 },
+    );
+  }
+
+  function startNav() {
+    if (!selected) return;
+    setGpsNote('');
+    if (!('geolocation' in navigator)) { setGpsNote('This browser does not support GPS. You can still follow the route on the map.'); return; }
+    const segments = splitAtTimeGaps(selected.points || []);
+    tracker.current = new PathTracker(selected.points, { segments, offPathMeters: OFFPATH_M, offPathFixes: OFFPATH_FIXES, arrivalMeters: ARRIVAL_M });
+    setNavInfo(null);
+    setNavigating(true);
+    navigatingRef.current = true;
+    setFollowMe(true);
+    setSheet('peek');
+    wake.acquire();
+    startWatch();
+  }
+
   function stopNav() {
     stopWatch();
-    releaseWakeLock();
+    wake.release();
     tracker.current = null;
+    navigatingRef.current = false;
     setNavigating(false); setPos(null); setNavInfo(null); setGpsNote('');
   }
 
@@ -395,16 +460,7 @@ export default function PublicPage() {
                     {r.reversed && <span className="chip amber">Reverse</span>}
                     {r.routeName}
                   </div>
-                  <div className="route-card-meta">
-                    {r.distanceMeters != null && <span>📏 {formatDistance(r.distanceMeters)}</span>}
-                    {r.distanceMeters != null && <span>🚶 {formatWalkTime(r.distanceMeters)}</span>}
-                  </div>
-                  <div className="route-chips">
-                    {triChip(r.hasStairs, 'Has stairs', 'No stairs')}
-                    {triChip(r.hasRamp, 'Ramp', 'No ramp')}
-                    {triChip(r.isCovered, 'Covered', 'Open air')}
-                    {r.waypoints?.length > 0 && <span className="chip blue">Via {r.waypoints.length} stop{r.waypoints.length > 1 ? 's' : ''}</span>}
-                  </div>
+                  <RouteFacts route={r} />
                 </button>
               ))}
             </div>
@@ -427,15 +483,8 @@ export default function PublicPage() {
               <>
                 <div className="route-card selected">
                   <div className="route-card-name">{selected.routeName}</div>
-                  <div className="route-card-meta">
-                    {selected.distanceMeters != null && <span>📏 {formatDistance(selected.distanceMeters)}</span>}
-                    {selected.distanceMeters != null && <span>🚶 {formatWalkTime(selected.distanceMeters)}</span>}
-                  </div>
-                  <div className="route-chips">
-                    {triChip(selected.hasStairs, 'Has stairs', 'No stairs')}
-                    {triChip(selected.hasRamp, 'Ramp', 'No ramp')}
-                    {triChip(selected.isCovered, 'Covered', 'Open air')}
-                  </div>
+                  <RouteFacts route={selected} detailed />
+                  {selected.waypoints?.length > 0 && null}
                 </div>
                 {selectedHasGap && (
                   <div className="alert warn">
@@ -502,13 +551,14 @@ export default function PublicPage() {
                   </div>
                 </div>
                 <p className="muted" style={{ fontSize: 12 }}>
-                  Keep the screen on: some phones pause GPS when locked. No automatic rerouting or route switching is performed.
+                  {backgroundHint()} {wakeLockHint()} No automatic rerouting or route switching is performed.
                 </p>
               </>
             )}
           </div>
         )}
 
+        {!online && <div className="alert warn">You are offline. Locations and routes saved on this device are shown; live GPS still works and no rerouting is performed.</div>}
         {notice && <div className="alert info">{notice}</div>}
         {loadError && (
           <div className="alert error">
@@ -565,6 +615,7 @@ export default function PublicPage() {
       )}
 
       <section className={`sheet ${sheet}`} aria-label="Navigation panel">
+        {notice && <div className="alert info" style={{ margin: '10px 12px 0' }}>{notice}</div>}
         <button
           type="button"
           className="sheet-handle"

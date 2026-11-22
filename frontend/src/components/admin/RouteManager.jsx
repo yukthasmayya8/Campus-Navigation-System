@@ -5,6 +5,7 @@ import {
 } from '../../api.js';
 import { formatDistance } from '../../lib/geo.js';
 import MapView from '../MapView.jsx';
+import RouteFacts from '../RouteFacts.jsx';
 import HistoryPanel from './HistoryPanel.jsx';
 
 const LIMIT = 15;
@@ -95,7 +96,7 @@ export default function RouteManager({ user, onChange }) {
                     </div>
                   </td>
                   <td className="muted" style={{ fontSize: 12.5 }}>#{r.sourceLocationId} → #{r.destinationLocationId}</td>
-                  <td>{formatDistance(r.distanceMeters)}</td>
+                  <td>{r.distanceMeters != null ? `≈ ${formatDistance(r.distanceMeters)}` : '—'}</td>
                   <td><span className={`badge ${r.status}`}>{r.status}</span></td>
                   <td>
                     <div className="actions">
@@ -152,9 +153,7 @@ export default function RouteManager({ user, onChange }) {
                 <span className="chip blue">{preview.detail.points?.length || 0} GPS points</span>
                 <span className="chip">{preview.detail.waypoints?.length || 0} waypoints</span>
                 <span className="chip">{preview.detail.directionality === 'bidirectional' ? 'Bidirectional' : 'One-way'}</span>
-                {preview.detail.hasStairs === true && <span className="chip red">Has stairs</span>}
-                {preview.detail.hasRamp === true && <span className="chip green">Has ramp</span>}
-                {preview.detail.isCovered === true && <span className="chip green">Covered</span>}
+                <RouteFacts route={preview.detail} showDistance={false} detailed />
               </div>
               {preview.detail.notes && <p className="muted">{preview.detail.notes}</p>}
             </div>

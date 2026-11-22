@@ -11,7 +11,7 @@
     "seed:superadmin": "node scripts/seed-superadmin.js",
     "seed:demo": "node scripts/seed-demo.js",
     "seed:smvitm": "node scripts/seed-smvitm.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/logic.test.js && node --test test/integration.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
