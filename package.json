@@ -10,6 +10,7 @@
         "dev:backend": "npm run dev --workspace backend",
         "build": "npm run build --workspace frontend",
         "migrate": "npm run migrate --workspace backend",
+        "seed:accounts": "npm run seed:accounts --workspace backend",
         "start": "npm run migrate --workspace backend && npm start --workspace backend",
         "test": "npm test --workspace frontend && npm test --workspace backend"
     },
