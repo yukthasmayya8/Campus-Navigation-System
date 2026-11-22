@@ -1,100 +1,564 @@
 # SMVITM Campus Navigation System
 
-Campus navigation system for **Shri Madhwa Vadiraja Institute of Technology and Management (SMVITM), Bantakal, Udupi, Karnataka, India**.
+A full-stack pedestrian navigation application for **Shri Madhwa Vadiraja Institute of Technology and Management (SMVITM), Bantakal, Udupi, Karnataka, India**.
 
-- **Frontend:** React + Vite (TypeScript entry/tooling enabled), Leaflet + OpenStreetMap
-- **Backend:** Node.js + Express + PostgreSQL/PostGIS (existing working architecture preserved/enhanced)
-- **Features:** building search/autocomplete, nearest-building detection, route alternatives, live GPS navigation (off-route/reroute/arrival), admin management, versioning/restore, offline caching/PWA support (client-side), SMVITM seed data script
+The application combines a public Leaflet map, recorded GPS walking routes, live route tracking, offline read-only support, and an authenticated administration console for maintaining campus locations and route data.
 
-## How to run (local)
+> **Important:** Route geometry in the seed script is interpolated demonstration data. For production navigation, replace it with GPS tracks recorded on campus using the administration recorder.
 
-**See [`RUNNING.md`](RUNNING.md) for complete setup instructions**, including Docker PostGIS, Windows/local PostgreSQL notes, integration test setup (`TEST_DATABASE_URL`), GPS simulation (Chrome DevTools Sensors), offline/PWA demo, and deployment notes.
+## Project team
 
-### Quick start
+- Shravya
+- Shreekala
+- Vidhusha S Naik
+- Yuktha S Mayya
+
+## Features
+
+### Public navigation
+
+- Interactive Leaflet map using OpenStreetMap tiles
+- Active campus-building markers with selectable location details
+- Case-insensitive building search with prefix-first ranking
+- Optional browser voice search where Web Speech Recognition is supported
+- Category filtering for campus locations
+- Start and destination selection
+- “Use my location” start selection using the nearest active building
+- Multiple verified route alternatives
+- One-way and bidirectional route support
+- Reverse matching for eligible bidirectional routes, including reversed points and waypoints
+- Route metadata:
+  - Approximate recorded distance
+  - Walking-time estimate
+  - Stairs, ramp, and covered-path information
+  - Intermediate waypoints
+  - GPS-gap warnings
+- Live GPS navigation with:
+  - Current-position marker and accuracy circle
+  - Follow-me map mode
+  - Wake Lock while navigating, where supported
+  - Remaining distance
+  - Next waypoint display
+  - Off-path warning
+  - Arrival detection
+  - Permission, timeout, weak-signal, and unsupported-browser messages
+- Explicit route selection: the application does **not** automatically switch routes or reroute.
+- Public location and route reads can fall back to the device cache when the network is unavailable.
+
+### GPS route recording
+
+Administrators can record real walking routes at `/admin/record`.
+
+- Uses browser `navigator.geolocation.watchPosition`
+- Never generates synthetic GPS points
+- Accepts fixes only when accuracy is at most 25 metres
+- Ignores fixes closer than 3 metres to the previous accepted point
+- Rejects physically implausible movement above 10 m/s
+- Records accuracy, timestamp, latitude, longitude, and sequence number
+- Marks interruptions and long pauses as GPS gaps instead of drawing unsupported straight lines
+- Persists the active recording session in `sessionStorage`
+- Restores after reload in a paused state; recording never resumes silently
+- Uploads points in batches every five seconds
+- Uses sequence numbers and duplicate-safe inserts for retryable uploads
+- Supports waypoint selection and ordering
+- Provides map preview before saving or publishing
+- Saves a server-side draft, publishes it, or discards it
+- Requires acknowledgement before publishing a route containing GPS gaps
+
+### Administration
+
+- Cookie-based JWT authentication
+- Admin and Super Admin roles
+- Forced password-change flow
+- Login, logout, current-user, change-password, forgot-password, and reset-password flows
+- Location management:
+  - Create, edit, activate, deactivate
+  - Coordinate picker
+  - Nearby-location duplicate detection
+  - Image upload
+- Route management:
+  - Create drafts
+  - Append GPS point batches
+  - Edit metadata and geometry
+  - Publish, deactivate, reactivate, or discard drafts
+- Location and route version history
+- Version comparison
+- Super Admin restore of historical versions
+- Super Admin user management
+- Super Admin audit-log viewing
+- Optimistic version locking to prevent stale updates
+
+### Offline and PWA support
+
+- Web app manifest and production service worker
+- IndexedDB cache containing active locations and published route geometry
+- Atomic cache synchronization from `/api/offline/snapshot`
+- Cache updates use `versionNumber` values and remove deactivated records
+- Offline search, nearest-building lookup, and cached route alternatives
+- Cache-first storage for OpenStreetMap tiles the user has already viewed
+- Maximum of 400 cached map tiles
+- Network-first navigation fallback with an offline page
+- Administration and all write operations remain online-only
+
+## How the application features work
+
+### Public building discovery
+
+The public home page loads all active locations and renders them as Leaflet circle markers. Search sends the entered text to `/api/locations/search`, which performs a case-insensitive partial match in PostgreSQL. Results whose names begin with the entered text are ranked before later substring matches. The autocomplete UI requires an explicit choice, so a search submission or voice recognition result does not unexpectedly navigate to a building.
+
+Category chips are derived from the building name and description. They provide a quick campus-level filter but do not replace the server-side search endpoint. “Use my location” asks the browser for its current coordinates and calls `/api/locations/nearest`; the nearest active building is then shown as the inferred start and remains selectable by the user.
+
+Location details are loaded from `/api/locations/:id`. From a detail view, the user can select that building as the destination and immediately enter route planning.
+
+### Route planning
+
+The user chooses a start building and a destination building. The request is sent to `GET /api/routes?from=<start>&to=<destination>`. The backend validates that the IDs differ, then finds published active routes for the exact direction or a verified reverse match.
+
+A route is only eligible when:
+
+- The route status is `active`
+- The source and destination locations are both `active`
+- The direction is exact, or the route is marked `bidirectional`
+
+Each returned alternative contains the route geometry, route distance, direction, waypoints, route-name and accessibility metadata, and any GPS gap segments. The route cards display approximate distance and walking time at an 80 m/min estimate. A route with `hasStairs = false` is presented as step-free; `true` indicates stairs are present; `NULL` is shown as unverified rather than as an answer of false.
+
+Users can sort between the server's recommended deterministic order and shortest recorded distance. Sorting never creates a new route or invokes an undisplayed graph-search result. It only orders the verified alternatives already stored for those endpoints.
+
+## How navigation actually works
+
+Navigation is **recorded-polyline pedestrian guidance**, not road-network routing and not automatic route generation.
+
+1. **Route selection:** The user chooses one stored, published route between the start and destination. A route may have been recorded with the Admin Recorder or created by the seeded demonstration data.
+2. **Route preparation:** The selected route's ordered GPS points are read. Where timestamps prove a gap longer than 15 seconds, or the recorder explicitly marked an interruption, the geometry is divided into independent segments. The system does not join these segments with an invented straight line.
+3. **GPS acquisition:** Starting navigation activates `navigator.geolocation.watchPosition` with high accuracy requested, a 2-second maximum age, and a 15-second browser timeout.
+4. **GPS filtering:** Every fix is checked for valid coordinates and acceptable accuracy. Fixes with reported accuracy worse than 30 metres are ignored. The filter also rejects speed implausibility above 12 m/s and accuracy-weights accepted fixes for smoother movement.
+5. **Projection onto the route:** `PathTracker` projects the accepted position onto every usable segment of the selected polyline and chooses the closest segment. This makes the live marker stable and gives the system a point along the route for distance calculations.
+6. **Map display:** The live position is shown with an accuracy circle. Follow-me mode pans the map to the position and keeps the zoom at its most useful level, at least 18. “Recenter” can restore this behavior.
+7. **Remaining distance:** The projected position is converted into metres left along the closest segment, then the remaining walkable metres of later segments are added. Inter-segment GPS gaps do not count as walked evidence.
+8. **Next waypoint:** As navigation advances, the system determines the first waypoint whose location lies after the current polyline segment. The destination is used as the final label.
+9. **Off-path detection:** The system requires three consecutive accepted fixes at more than 30 metres from the route before setting `offPath = true`. A single noisy fix does not trigger the warning.
+10. **Arrival:** Arrival requires the position to be on or near the last walkable segment, remaining distance to be 15 metres or less, and distance from the route to remain within 60 metres. The arrival card is then shown for the destination.
+11. **Background behavior:** Losing or suspending the page does not change the selected route or tracker state. The system asks the browser for a wake lock while navigation is active and warns that progress may pause while in the background.
+
+The implementation is not a shortest-path engine: it does not build a campus graph and run Dijkstra/A* at query time. It calculates alternatives from recorded route records and navigates along the chosen polyline. This is accurate only where the recorded geometry represents the real pedestrian path.
+
+### Off-path handling and rerouting
+
+An off-path warning is deliberately non-destructive. The application keeps the highlighted recorded route visible, continues tracking against it, and reports that automatic rerouting is unavailable. It does not switch alternatives, calculate a new graph route, or redirect the user to a building-level fallback automatically.
+
+This behavior is important in real-world use: a temporarily poor GPS fix or one off-campus reading should not silently replace a route. A user can stop navigation and choose another stored alternative manually.
+
+### GPS recording workflow
+
+The Admin Recorder creates server drafts in a separate lifecycle from public navigation:
+
+1. The administrator chooses route endpoints, route name, directionality, and optional stair/ramp/cover metadata.
+2. The browser starts a GPS watch and only stores accepted fixes.
+3. Poor accuracy, jumps, invalid fixes, and points less than 3 metres apart are excluded.
+4. A new segment is started after a 15-second signal gap or an explicit pause marked by the recorder.
+5. Recorded points are mirrored to `sessionStorage` so an ordinary page reload does not lose geometry.
+6. Unsaved points are uploaded every five seconds to a draft route using sequence numbers. A failed upload remains local and can be retried.
+7. The administrator previews gaps and waypoints, saves the draft, or publishes the route.
+8. Publishing verifies endpoints and every waypoint are still active and requires at least two route points.
+
+## Technology stack
+
+| Area | Technologies |
+| --- | --- |
+| Frontend | React 18, React Router, Vite, TypeScript entry/tooling, Leaflet |
+| Backend | Node.js 18+, Express, CommonJS |
+| Database | PostgreSQL 14+ with PostGIS and `pg_trgm` |
+| Authentication | JWT, HTTP-only cookies, bcryptjs |
+| Validation | Zod |
+| Security middleware | Helmet, CORS, express-rate-limit |
+| Offline storage | IndexedDB and a service worker |
+| Maps | Leaflet with OpenStreetMap tiles |
+
+## Architecture
+
+```text
+frontend/
+  src/
+    pages/              Public navigation, admin login, dashboard, recorder
+    components/         Map, search, route facts, admin panels, shared UI
+    hooks/              GPS recorder and wake-lock hooks
+    lib/                Geospatial, tracking, route-selection, offline helpers
+  public/               PWA manifest, icons, service worker
+
+backend/
+  src/
+    routes/             Public, authentication, and admin HTTP routes
+    services/           Locations, routes, users, audit, mail, storage
+    middleware/         Authentication and error handling
+    utils/              Validation, geometry, image, and async helpers
+  db/schema.sql         Idempotent PostgreSQL/PostGIS schema
+  scripts/              Migration and seed scripts
+
+docs/
+  api-contracts.yaml    OpenAPI 3 endpoint contract
+```
+
+The frontend communicates with the Express API through `frontend/src/api.js`. Public read requests use the API first and fall back to IndexedDB only for network failures. Admin requests always require an online API connection.
+
+## Algorithms and implementation details
+
+### Distance and geometry
+
+- **Haversine distance:** Calculates distances between latitude/longitude coordinates in metres.
+- **Local flat projection:** Projects nearby coordinates into a local metre-based plane. This is accurate for campus-sized paths and makes point-to-segment calculations practical.
+- **Point-to-polyline projection:** Finds the closest route segment to the current GPS position and calculates the remaining walkable distance from the projected position to the route end.
+- **Walkable segment length:** Sums each recorded segment independently. Distances across marked GPS gaps are deliberately excluded.
+- **PostGIS distance calculations:** The backend uses `ST_Length` for route distance and geography KNN ordering for nearest active locations.
+
+### GPS filtering and tracking
+
+The live-navigation filter uses a 30-metre accuracy limit, a 12 m/s maximum implied speed, and accuracy-weighted position smoothing. It:
+
+1. Rejects fixes with invalid latitude/longitude values.
+2. Treats a missing accuracy value conservatively and rejects fixes without usable accuracy under the strict recorder rules.
+3. Rejects fixes that imply movement above the maximum speed for the elapsed timestamp.
+4. Computes the old-position weight as `1 / previousAccuracy²` and the new-position weight as `1 / newAccuracy²`.
+5. Calculates `k = newWeight / (oldWeight + newWeight)`.
+6. Produces a smoothed latitude and longitude by applying `k` to the difference from the previous accepted estimate.
+7. Stores an accuracy value no worse than the most recent accepted accuracy, keeping the live accuracy circle tied to current signal quality.
+
+`PathTracker` executes one update for every accepted fix:
+
+1. Projects the position onto every usable route segment.
+2. Converts the projected position into a segment index and a percentage along that segment.
+3. Chooses the segment with the smallest perpendicular distance.
+4. Calculates metres remaining by taking the remainder of the chosen segment and adding the complete distance of all later walkable segments.
+5. Adds all segment lengths in metres using the same Haversine distance calculation used elsewhere.
+6. Counts one off-path strike for each accepted fix more than 30 metres from the nearest selected segment.
+7. Resets the strike counter after an accepted fix is within 30 metres.
+8. Reports off-path only after three consecutive strikes.
+9. Reports arrival only on the last segment when remaining distance is at most 15 metres and the position is within twice the off-path threshold of the route.
+
+Navigation thresholds are conservative and should be validated with real devices on campus. GPS accuracy and map placement are estimates: the system is not survey-grade and cannot guarantee a precise route position in obstructed or weak-signal areas.
+
+### Route matching and ranking
+
+The backend returns active routes whose endpoints are active. It matches:
+
+- Exact source-to-destination routes
+- Reversed destination-to-source routes only when `directionality = 'bidirectional'`
+
+Reversed routes are returned without modifying the database. Their endpoints, points, and waypoints are reversed and sequence numbers are renumbered. Alternatives are sorted deterministically by:
+
+1. Routes with `hasStairs = false`
+2. Routes with `hasRamp = true`
+3. Routes with `isCovered = true`
+4. Route ID
+
+`NULL` accessibility values mean **not verified** and are not treated as false.
+
+### Search and spatial checks
+
+- Building search is case-insensitive partial matching with prefix matches ranked first.
+- PostGIS KNN queries return the nearest active buildings to a GPS coordinate.
+- Location creation and coordinate changes check for active locations within the configured duplicate radius, 15 metres by default.
+- Database indexes include GiST spatial indexes and a trigram index for location names.
+
+### Versioning and consistency
+
+Locations and routes have independent integer version numbers. Mutating requests provide `expectedVersion`; the backend locks the row and returns `409 VERSION_CONFLICT` when the version is stale.
+
+Every versioned change stores:
+
+- A complete JSON snapshot
+- Version number
+- Modifier
+- Timestamp
+- Human-readable change description
+
+Restoring a version creates a new version; history is never rewritten. Audit records store the previous and next snapshots for administrative actions.
+
+## API
+
+The API base path is `/api`. Successful responses use resource-specific JSON shapes. Errors consistently use:
+
+```json
+{
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "Human-readable message",
+    "details": []
+  }
+}
+```
+
+### Health and public endpoints
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/health` | Database-backed health check |
+| GET | `/locations` | List active locations |
+| GET | `/locations/search?q=&limit=` | Search active locations |
+| GET | `/locations/:id` | Get one active location |
+| GET | `/locations/nearest?lat=&lng=&limit=` | Find nearest active locations |
+| GET | `/routes?from=&to=` | Return verified route alternatives |
+| GET | `/offline/snapshot` | Download active locations and published route geometry |
+
+### Authentication endpoints
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| POST | `/auth/login` | Authenticate and issue an HTTP-only cookie |
+| POST | `/auth/logout` | Clear the session cookie |
+| GET | `/auth/me` | Return the current authenticated user |
+| POST | `/auth/change-password` | Change the current password |
+| POST | `/auth/forgot-password` | Request a password-reset message |
+| POST | `/auth/reset-password` | Reset a password using a token |
+
+### Admin location endpoints
+
+All endpoints below are under `/admin` and require Admin or Super Admin access unless noted.
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/locations` | List active/inactive locations with filters |
+| GET | `/locations/:id` | Get a location, including inactive records |
+| GET | `/locations/nearby?lat=&lng=` | Check nearby active locations |
+| POST | `/locations` | Create a location |
+| PUT | `/locations/:id` | Update a location with `expectedVersion` |
+| POST | `/locations/:id/deactivate` | Deactivate a location |
+| POST | `/locations/:id/reactivate` | Reactivate a location |
+| POST | `/uploads/image` | Upload a validated JPEG, PNG, or WebP image |
+| GET | `/locations/:id/versions` | List location versions |
+| GET | `/locations/:id/versions/:n` | Read a location snapshot |
+| GET | `/locations/:id/versions/compare` | Compare two location versions |
+| POST | `/locations/:id/restore` | Restore a version; Super Admin only |
+
+### Admin route endpoints
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/routes` | List routes with status and endpoint filters |
+| GET | `/routes/:id` | Read a route and its geometry |
+| POST | `/routes` | Create a draft route |
+| POST | `/routes/:id/points` | Append a GPS point batch |
+| PUT | `/routes/:id` | Update route metadata, waypoints, or geometry |
+| POST | `/routes/:id/publish` | Publish a valid draft |
+| POST | `/routes/:id/deactivate` | Deactivate an active route |
+| POST | `/routes/:id/reactivate` | Reactivate an inactive route |
+| DELETE | `/routes/:id` | Discard a draft route |
+| GET | `/routes/:id/versions` | List route versions |
+| GET | `/routes/:id/versions/:n` | Read a route snapshot |
+| GET | `/routes/:id/versions/compare` | Compare two route versions |
+| POST | `/routes/:id/restore` | Restore a version; Super Admin only |
+
+### Super Admin endpoints
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/audit-logs` | View filtered audit records |
+| GET | `/users` | List administrator accounts |
+| POST | `/users` | Create an administrator |
+| PATCH | `/users/:id` | Update account role or status |
+
+The complete OpenAPI 3 contract is available in [`docs/api-contracts.yaml`](docs/api-contracts.yaml).
+
+## Local development
+
+### Prerequisites
+
+- Node.js 18 or newer
+- npm
+- PostgreSQL 14 or newer with PostGIS
+- A modern browser
+- HTTPS or `localhost` for browser geolocation and service-worker features
+
+### 1. Start PostGIS
+
+Docker is recommended:
+
 ```bash
-# 1) Start PostGIS (recommended)
 docker compose up -d db
+```
 
-# 2) Backend
+The supplied container uses:
+
+```text
+host: localhost
+port: 5432
+database: campus_nav
+user: postgres
+password: postgres
+```
+
+### 2. Configure the backend
+
+```bash
+cd backend
+cp .env.example .env
+```
+
+At minimum, configure:
+
+```env
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/campus_nav
+JWT_SECRET=replace-with-at-least-32-characters
+```
+
+Useful optional variables:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `PORT` | `4000` | Express server port |
+| `DATABASE_SSL` | `false` | Enable PostgreSQL TLS |
+| `JWT_EXPIRES_IN` | `8h` | JWT lifetime |
+| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed frontend origins |
+| `COOKIE_SECURE` | Based on environment | Use secure cookies in production |
+| `STORAGE_DRIVER` | `local` | Current supported image driver |
+| `UPLOAD_DIR` | `uploads` | Local image directory |
+| `PUBLIC_BASE_URL` | `http://localhost:4000` | Public API origin used in image URLs |
+| `FRONTEND_URL` | `http://localhost:5173` | Frontend URL used by password-reset mail |
+| `MAX_IMAGE_MB` | `3` | Maximum server-side image size |
+| `DUPLICATE_RADIUS_M` | `15` | Location duplicate-check radius |
+| `SMTP_URL` | empty | SMTP connection string for reset mail |
+| `MAIL_FROM` | local default | Password-reset sender address |
+
+### 3. Install, migrate, and seed
+
+```bash
 cd backend
 npm install
-# configure backend/.env (DATABASE_URL, JWT_SECRET >= 32 chars)
 npm run migrate
-npm run seed:smvitm      # idempotent SMVITM buildings/routes
-npm run dev              # http://localhost:4000
+npm run seed:smvitm
+npm run dev
+```
 
-# 3) Frontend (new terminal)
+The SMVITM seed is idempotent and creates:
+
+- Six active campus buildings
+- Three demonstration pedestrian routes
+- A Super Admin account if one does not already exist
+
+When created by the seed, the initial account is:
+
+```text
+Email:    admin@smvitm.ac.in
+Password: SMVITMAdmin@2024
+```
+
+Change seeded credentials before using the application outside local development.
+
+### 4. Start the frontend
+
+In another terminal:
+
+```bash
 cd frontend
 npm install
-npm run dev              # http://localhost:5173
+npm run dev
 ```
 
-### Tests/builds
+Open `http://localhost:5173`.
+
+The frontend reads `VITE_API_URL` when supplied. If it is empty, it targets the same origin and appends `/api`.
+
+## Testing and verification
+
+### Frontend
+
 ```bash
-# frontend
-cd frontend && npx tsc --noEmit && npm test && npm run build
-
-# backend (unit tests; integration tests require TEST_DATABASE_URL on isolated PostGIS DB)
-cd backend && npm test
+cd frontend
+npx tsc --noEmit
+npm test
+npm run build
 ```
 
-On Windows, create the backend environment file before starting the server:
+Frontend tests cover geospatial helpers, GPS filtering and smoothing, route tracking, off-path and arrival behavior, and offline route alternatives.
 
-```powershell
-Copy-Item backend/.env.example backend/.env
-# Edit backend/.env and replace DATABASE_URL with your PostgreSQL username,
-# password, host, port and database name. Set JWT_SECRET to 32+ characters.
-npm run migrate --workspace backend
-npm run seed:superadmin --workspace backend
-npm run dev:backend
+### Backend
+
+```bash
+cd backend
+npm test
 ```
 
-The database user in `.env.example` is only an example. If PostgreSQL reports
-`password authentication failed`, use the password configured for your local
-`postgres` role. Login will not work until the migration and Super Admin seed
-commands complete successfully.
+Backend unit tests cover route reversal and sorting, snapshot differences, coordinate validation, and image signature validation. Integration tests require an isolated PostGIS database:
 
-## Deploy the frontend
+```bash
+TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/campus_nav_test \
+JWT_SECRET=a-very-long-secret-key-at-least-32-chars \
+npm test
+```
 
-The repository includes `netlify.toml` and `vercel.json`, so either platform can
-install dependencies and build the Vite app without adding scripts in the hosting
-dashboard. Set the frontend environment variable `VITE_API_URL` to the public
-origin of the deployed Express API, for example `https://api.example.com` (or
-`https://api.example.com/api`). Set the backend `CORS_ORIGINS` to the deployed
-frontend URL and keep `COOKIE_SECURE=true` in production.
+Use a separate test database because integration tests create and clean up records.
 
-The backend still needs a Node host with PostgreSQL/PostGIS and persistent image
-storage. Netlify and Vercel serve the frontend build; they do not provide the
-database or durable local filesystem used by the development storage driver.
+### Manual GPS demonstration
 
-## API summary (all under /api)
-Public (no login)
-- GET `/locations/nearest?lat&lng` (PostGIS nearest buildings) · GET `/offline/snapshot` (data for the offline cache)
-- GET `/locations` · GET `/locations/search?q=` · GET `/locations/:id` (active only)
-- GET `/routes?from=<id>&to=<id>` — exact match + verified bidirectional reverse (reversed points/waypoints, `reversed:true`); active routes with active endpoints only; sorted stairs=false → ramp → covered → id; `null` = not verified
+1. Run the frontend on `localhost` or HTTPS.
+2. Open Chrome DevTools → More tools → Sensors.
+3. Simulate coordinates near the seeded campus buildings.
+4. Test nearest-building selection and live navigation.
+5. Move more than 30 metres from the selected route for three accepted fixes to display the off-path warning.
+6. Move within 15 metres of the final route point to test arrival.
+7. Test permission denial, poor accuracy, timeouts, and browser backgrounding.
 
-Auth: POST `/auth/login`, `/auth/logout`, GET `/auth/me`, POST `/auth/change-password`, `/auth/forgot-password`, `/auth/reset-password`
+## Deployment
 
-Admin + Super Admin (`/admin`)
-- Locations: GET/POST `/locations`, GET `/locations/nearby?lat&lng` (PostGIS duplicate check), GET/PUT `/locations/:id`, POST `/locations/:id/deactivate|reactivate`, POST `/uploads/image`
-- Routes: GET/POST `/routes` (creates a **draft**), POST `/routes/:id/points` (live GPS batches), PUT `/routes/:id`, POST `/routes/:id/publish|deactivate|reactivate`, DELETE `/routes/:id` (drafts only)
-- History: GET `/locations|routes/:id/versions` (paginated), `/versions/:n`, `/versions/compare?from&to`
-- Updates/status changes require `expectedVersion`; stale → **409 VERSION_CONFLICT** with current data.
+### Frontend
 
-Super Admin only: POST `/locations|routes/:id/restore` `{versionNumber, expectedVersion}`, GET `/audit-logs`, GET/POST `/users`, PATCH `/users/:id`
+The repository includes configuration for Netlify and Vercel:
 
-Errors always look like `{ "error": { "code", "message", "details?" } }`.
+- [`netlify.toml`](netlify.toml)
+- [`vercel.json`](vercel.json)
 
-## Notes
-- Image storage: `local` driver is for development only. Add a persistent driver in `src/services/storage.js` (Supabase Storage / Cloudinary) before the hosted demo — only the https URL is stored in PostgreSQL.
-- Not included (per scope): GPS smoothing, distance, off-path/arrival, auto start detection, rerouting, offline PWA, OpenAPI file (`docs/api-contracts.yaml` is still a Stage 1 task).
-- Frontend is one integrated app: public map, search/voice, start/destination selection, recorded-route alternatives, live navigation, location details, and the full admin dashboard/recorder. Shared modules live in `frontend/src/api.js`, `components/MapView.jsx`, `components/SearchBox.jsx`, and `styles.css`.
+Set `VITE_API_URL` to the public Express API origin, with or without the `/api` suffix.
 
-## Added in this revision
-- **Stale responses:** `reqSeq` is bumped on every start/destination change (and every search/reroute), so a late response can never overwrite a newer selection.
-- **Publishing** now verifies the endpoints *and every waypoint* are still active (waypoint status still never hides an already-published route, per section 8.2).
-- **Route recording UI:** `/admin/record` — pick endpoints, walk, points are filtered (accuracy ≤ 25 m, ≥ 3 m spacing) and uploaded in batches every 5 s with sequence numbers (safe retries, kept on device if upload fails), mark waypoints, preview, save draft / publish / discard.
-- **Navigation:** GPS filtering + smoothing, distance (PostGIS length per route, remaining metres live), off-path detection (3 consecutive fixes > 30 m), arrival detection (≤ 15 m).
-- **Off-path handling:** GPS filtering + smoothing, remaining distance, off-path detection (3 consecutive fixes > 30 m) and arrival detection (≤ 15 m). Off-path produces a warning only — there is no automatic rerouting or automatic route switching.
-- **Offline PWA:** manifest, service worker (app shell + only the map tiles you viewed), IndexedDB cache of locations and routes (refreshed on load / when back online, using `versionNumber`). Admin and all writes stay online-only.
-- **docs/api-contracts.yaml:** OpenAPI 3 contract for every endpoint (open in https://editor.swagger.io). Freeze it with `git tag api-v1.0` once the team has reviewed it.
+### Backend
+
+[`render.yaml`](render.yaml) describes a Node service that:
+
+1. Installs backend dependencies.
+2. Runs the idempotent migration.
+3. Starts the Express server.
+4. Exposes `/api/health` as its health check.
+
+Production requires:
+
+- Managed PostgreSQL with PostGIS
+- HTTPS
+- Strong `JWT_SECRET`
+- Correct `CORS_ORIGINS`
+- `COOKIE_SECURE=true`
+- A persistent image-storage implementation
+
+The current `local` storage driver writes files to the server filesystem. Many hosted free tiers use ephemeral disks, so use durable object storage such as S3, Cloudinary, or Supabase Storage before relying on uploaded images in production. The application stores only the resulting image URL in PostgreSQL.
+
+## Data model
+
+The PostGIS schema contains:
+
+- `users`, `roles`, and `password_reset_tokens`
+- `locations` with generated geography points and active-name uniqueness
+- `routes` with endpoint, directionality, accessibility metadata, and lifecycle status
+- `route_points` with ordered GPS geometry
+- `route_waypoints` linking routes to campus locations
+- `location_versions` and `route_versions`
+- `audit_logs`
+
+The migration in [`backend/db/schema.sql`](backend/db/schema.sql) is idempotent and creates the required PostGIS and trigram extensions.
+
+## Known limitations
+
+- Route lines are recorded pedestrian evidence, not turn-by-turn road-network directions.
+- There is no automatic rerouting or automatic route switching.
+- Off-path detection displays a warning only.
+- Offline mode supports cached public reads; administration and writes require connectivity.
+- Only map tiles already viewed are cached; the app does not bulk-download OpenStreetMap tiles.
+- The browser and operating system control GPS quality, permission, background execution, and voice recognition availability.
+- Seed coordinates and interpolated paths are approximate and must be field-verified.
+- Accessibility metadata can be `NULL`, meaning it has not been verified.
+- The current image driver is local filesystem storage.
+- Real-device testing on the SMVITM campus is required before production use.
+
+## Related documentation
+
+- [`RUNNING.md`](RUNNING.md) — expanded local setup, GPS, offline, and deployment notes
+- [`docs/demo-and-testing.md`](docs/demo-and-testing.md) — API and demonstration checklist
+- [`docs/api-contracts.yaml`](docs/api-contracts.yaml) — OpenAPI 3 contract
+- [`DEPLOYMENT.md`](DEPLOYMENT.md) — deployment-specific guidance
+- [`research_implementation_mapping.md`](research_implementation_mapping.md) — mapping of research goals to implemented features
