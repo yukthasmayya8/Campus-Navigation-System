@@ -6,6 +6,13 @@ The application combines a public Leaflet map, recorded GPS walking routes, live
 
 > **Important:** Route geometry in the seed script is interpolated demonstration data. For production navigation, replace it with GPS tracks recorded on campus using the administration recorder.
 
+## Project team
+
+- Shravya
+- Shreekala
+- Vidhusha S Naik
+- Yuktha S Mayya
+
 ## Features
 
 ### Public navigation
@@ -93,6 +100,67 @@ Administrators can record real walking routes at `/admin/record`.
 - Network-first navigation fallback with an offline page
 - Administration and all write operations remain online-only
 
+## How the application features work
+
+### Public building discovery
+
+The public home page loads all active locations and renders them as Leaflet circle markers. Search sends the entered text to `/api/locations/search`, which performs a case-insensitive partial match in PostgreSQL. Results whose names begin with the entered text are ranked before later substring matches. The autocomplete UI requires an explicit choice, so a search submission or voice recognition result does not unexpectedly navigate to a building.
+
+Category chips are derived from the building name and description. They provide a quick campus-level filter but do not replace the server-side search endpoint. “Use my location” asks the browser for its current coordinates and calls `/api/locations/nearest`; the nearest active building is then shown as the inferred start and remains selectable by the user.
+
+Location details are loaded from `/api/locations/:id`. From a detail view, the user can select that building as the destination and immediately enter route planning.
+
+### Route planning
+
+The user chooses a start building and a destination building. The request is sent to `GET /api/routes?from=<start>&to=<destination>`. The backend validates that the IDs differ, then finds published active routes for the exact direction or a verified reverse match.
+
+A route is only eligible when:
+
+- The route status is `active`
+- The source and destination locations are both `active`
+- The direction is exact, or the route is marked `bidirectional`
+
+Each returned alternative contains the route geometry, route distance, direction, waypoints, route-name and accessibility metadata, and any GPS gap segments. The route cards display approximate distance and walking time at an 80 m/min estimate. A route with `hasStairs = false` is presented as step-free; `true` indicates stairs are present; `NULL` is shown as unverified rather than as an answer of false.
+
+Users can sort between the server's recommended deterministic order and shortest recorded distance. Sorting never creates a new route or invokes an undisplayed graph-search result. It only orders the verified alternatives already stored for those endpoints.
+
+## How navigation actually works
+
+Navigation is **recorded-polyline pedestrian guidance**, not road-network routing and not automatic route generation.
+
+1. **Route selection:** The user chooses one stored, published route between the start and destination. A route may have been recorded with the Admin Recorder or created by the seeded demonstration data.
+2. **Route preparation:** The selected route's ordered GPS points are read. Where timestamps prove a gap longer than 15 seconds, or the recorder explicitly marked an interruption, the geometry is divided into independent segments. The system does not join these segments with an invented straight line.
+3. **GPS acquisition:** Starting navigation activates `navigator.geolocation.watchPosition` with high accuracy requested, a 2-second maximum age, and a 15-second browser timeout.
+4. **GPS filtering:** Every fix is checked for valid coordinates and acceptable accuracy. Fixes with reported accuracy worse than 30 metres are ignored. The filter also rejects speed implausibility above 12 m/s and accuracy-weights accepted fixes for smoother movement.
+5. **Projection onto the route:** `PathTracker` projects the accepted position onto every usable segment of the selected polyline and chooses the closest segment. This makes the live marker stable and gives the system a point along the route for distance calculations.
+6. **Map display:** The live position is shown with an accuracy circle. Follow-me mode pans the map to the position and keeps the zoom at its most useful level, at least 18. “Recenter” can restore this behavior.
+7. **Remaining distance:** The projected position is converted into metres left along the closest segment, then the remaining walkable metres of later segments are added. Inter-segment GPS gaps do not count as walked evidence.
+8. **Next waypoint:** As navigation advances, the system determines the first waypoint whose location lies after the current polyline segment. The destination is used as the final label.
+9. **Off-path detection:** The system requires three consecutive accepted fixes at more than 30 metres from the route before setting `offPath = true`. A single noisy fix does not trigger the warning.
+10. **Arrival:** Arrival requires the position to be on or near the last walkable segment, remaining distance to be 15 metres or less, and distance from the route to remain within 60 metres. The arrival card is then shown for the destination.
+11. **Background behavior:** Losing or suspending the page does not change the selected route or tracker state. The system asks the browser for a wake lock while navigation is active and warns that progress may pause while in the background.
+
+The implementation is not a shortest-path engine: it does not build a campus graph and run Dijkstra/A* at query time. It calculates alternatives from recorded route records and navigates along the chosen polyline. This is accurate only where the recorded geometry represents the real pedestrian path.
+
+### Off-path handling and rerouting
+
+An off-path warning is deliberately non-destructive. The application keeps the highlighted recorded route visible, continues tracking against it, and reports that automatic rerouting is unavailable. It does not switch alternatives, calculate a new graph route, or redirect the user to a building-level fallback automatically.
+
+This behavior is important in real-world use: a temporarily poor GPS fix or one off-campus reading should not silently replace a route. A user can stop navigation and choose another stored alternative manually.
+
+### GPS recording workflow
+
+The Admin Recorder creates server drafts in a separate lifecycle from public navigation:
+
+1. The administrator chooses route endpoints, route name, directionality, and optional stair/ramp/cover metadata.
+2. The browser starts a GPS watch and only stores accepted fixes.
+3. Poor accuracy, jumps, invalid fixes, and points less than 3 metres apart are excluded.
+4. A new segment is started after a 15-second signal gap or an explicit pause marked by the recorder.
+5. Recorded points are mirrored to `sessionStorage` so an ordinary page reload does not lose geometry.
+6. Unsaved points are uploaded every five seconds to a draft route using sequence numbers. A failed upload remains local and can be retried.
+7. The administrator previews gaps and waypoints, saves the draft, or publishes the route.
+8. Publishing verifies endpoints and every waypoint are still active and requires at least two route points.
+
 ## Technology stack
 
 | Area | Technologies |
@@ -144,23 +212,29 @@ The frontend communicates with the Express API through `frontend/src/api.js`. Pu
 
 ### GPS filtering and tracking
 
-The `GpsFilter`:
+The live-navigation filter uses a 30-metre accuracy limit, a 12 m/s maximum implied speed, and accuracy-weighted position smoothing. It:
 
-1. Rejects invalid coordinates.
-2. Rejects fixes whose reported accuracy exceeds the configured limit.
-3. Rejects jumps whose implied speed exceeds the configured limit.
-4. Smooths accepted fixes using accuracy-weighted averaging.
+1. Rejects fixes with invalid latitude/longitude values.
+2. Treats a missing accuracy value conservatively and rejects fixes without usable accuracy under the strict recorder rules.
+3. Rejects fixes that imply movement above the maximum speed for the elapsed timestamp.
+4. Computes the old-position weight as `1 / previousAccuracy²` and the new-position weight as `1 / newAccuracy²`.
+5. Calculates `k = newWeight / (oldWeight + newWeight)`.
+6. Produces a smoothed latitude and longitude by applying `k` to the difference from the previous accepted estimate.
+7. Stores an accuracy value no worse than the most recent accepted accuracy, keeping the live accuracy circle tied to current signal quality.
 
-`PathTracker` then:
+`PathTracker` executes one update for every accepted fix:
 
-1. Locates the filtered position on every usable route segment.
-2. Chooses the closest segment.
-3. Computes remaining distance using only walkable segment lengths.
-4. Counts consecutive fixes more than 30 metres from the path.
-5. Reports off-path status after three consecutive out-of-path fixes.
-6. Reports arrival on the final segment when remaining distance is at most 15 metres and the position is within the arrival boundary.
+1. Projects the position onto every usable route segment.
+2. Converts the projected position into a segment index and a percentage along that segment.
+3. Chooses the segment with the smallest perpendicular distance.
+4. Calculates metres remaining by taking the remainder of the chosen segment and adding the complete distance of all later walkable segments.
+5. Adds all segment lengths in metres using the same Haversine distance calculation used elsewhere.
+6. Counts one off-path strike for each accepted fix more than 30 metres from the nearest selected segment.
+7. Resets the strike counter after an accepted fix is within 30 metres.
+8. Reports off-path only after three consecutive strikes.
+9. Reports arrival only on the last segment when remaining distance is at most 15 metres and the position is within twice the off-path threshold of the route.
 
-Navigation thresholds are intentionally conservative and should be validated with real devices on campus.
+Navigation thresholds are conservative and should be validated with real devices on campus. GPS accuracy and map placement are estimates: the system is not survey-grade and cannot guarantee a precise route position in obstructed or weak-signal areas.
 
 ### Route matching and ranking
 
