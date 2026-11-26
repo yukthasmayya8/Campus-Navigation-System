@@ -3,7 +3,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { locateOnPath, splitAtTimeGaps } from '../lib/geo.js';
 
-export const TILE_URL = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_TILE_URL) || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+export const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 export const TILE_ATTRIBUTION = '© OpenStreetMap contributors';
 export const DEFAULT_CENTER = [13.3225, 74.7843]; // SMVITM, Bantakal
 
