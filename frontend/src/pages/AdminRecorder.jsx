@@ -8,7 +8,7 @@ import { splitAtGaps, formatDuration, formatDistance, pathLength } from '../lib/
 import { backgroundHint, wakeLockHint } from '../lib/platform.js';
 import {
   adminLocations, appendRoutePoints, createDraftRoute, discardRoute, errorMessage,
-  me, publishRoute, updateRoute,
+  me, publishRoute, updateRoute, createLocation,
 } from '../api.js';
 
 const STORAGE_KEY = 'campus-nav-recorder-draft-v1';
@@ -40,6 +40,8 @@ export default function AdminRecorder() {
   const [draft, setDraft] = useState({ routeId: stored.current?.routeId || null, version: stored.current?.version || 1 });
   const [uploadedSeq, setUploadedSeq] = useState(Number(stored.current?.uploadedSeq) || 0);
   const [wpPick, setWpPick] = useState('');
+  const [newLandmark, setNewLandmark] = useState('');
+  const [landmarkBusy, setLandmarkBusy] = useState(false);
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
   const [uploadErr, setUploadErr] = useState('');
@@ -203,6 +205,28 @@ export default function AdminRecorder() {
     if (!waypoints.includes(id)) setWaypoints([...waypoints, id]);
     setWpPick('');
   }
+  async function addLandmarkHere() {
+    if (!newLandmark.trim()) return;
+    const last = rec.points.length ? rec.points[rec.points.length - 1] : null;
+    if (!last) { setErr('Wait for a GPS fix before marking a landmark.'); return; }
+    setLandmarkBusy(true); setErr('');
+    try {
+      const created = await createLocation({
+        name: newLandmark.trim(),
+        description: 'Marked during route recording',
+        latitude: last.latitude,
+        longitude: last.longitude,
+        imageUrl: null,
+        confirmNearby: true,
+      });
+      const id = created.locationId;
+      if (!waypoints.includes(id)) setWaypoints([...waypoints, id]);
+      setLocations((prev) => [...prev, { locationId: id, name: newLandmark.trim(), status: 'active', latitude: last.latitude, longitude: last.longitude, versionNumber: created.versionNumber || 1 }]);
+      setMsg(`Landmark “${newLandmark.trim()}” added at your current position and marked as a waypoint.`);
+      setNewLandmark('');
+    } catch (ex) { setErr(errorMessage(ex)); } finally { setLandmarkBusy(false); }
+  }
+
   const removeWaypoint = (id) => setWaypoints(waypoints.filter((w) => w !== id));
   const moveWaypoint = (index, delta) => {
     const next = [...waypoints];
@@ -385,7 +409,15 @@ export default function AdminRecorder() {
                     </label>
                     <WaypointList ids={waypoints} nameOf={nameOf} onRemove={removeWaypoint} onMove={moveWaypoint} />
 
-                    {rec.status === 'recording' ? (
+                    <label>Mark a new landmark here
+                      <div className="row">
+                        <input value={newLandmark} onChange={(e) => setNewLandmark(e.target.value)} placeholder="e.g. Gate, bench, tree" />
+                        <button type="button" onClick={addLandmarkHere} disabled={!newLandmark.trim() || landmarkBusy || rec.points.length === 0} style={{ flex: '0 0 auto' }}>
+                          {landmarkBusy ? 'Adding…' : 'Add here'}
+                        </button>
+                      </div>
+                    </label>
+                      {rec.status === 'recording' ? (
                       <div className="row">
                         <button type="button" onClick={rec.pause}>Pause</button>
                         <button type="button" className="primary" style={{ width: 'auto' }} onClick={stopRecording} disabled={rec.points.length < 2 || busy}>Finish &amp; review</button>

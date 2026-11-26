@@ -43,6 +43,21 @@ export default function LocationManager({ user, onChange }) {
     setErr(''); setMsg('');
   }
 
+  async function useMyLocation() {
+    setErr('');
+    if (!('geolocation' in navigator)) { setErr('GPS is not supported in this browser.'); return; }
+    setBusy(true);
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        setForm((f) => ({ ...f, latitude: p.coords.latitude.toFixed(7), longitude: p.coords.longitude.toFixed(7) }));
+        setBusy(false);
+        setMsg('Coordinates filled from your current GPS position.');
+      },
+      (e) => { setErr(e.code === 1 ? 'Location permission denied.' : 'Could not get your position.'); setBusy(false); },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    );
+  }
+
   async function handleUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -180,6 +195,9 @@ export default function LocationManager({ user, onChange }) {
                   <input type="number" step="any" value={form.longitude} onChange={setF('longitude')} placeholder="74.7852" />
                 </label>
               </div>
+              <button type="button" onClick={useMyLocation} disabled={busy} style={{ width: 'auto' }}>
+                📍 Use my current location
+              </button>
               <LocationPicker
                 value={pickerValue}
                 onChange={(v) => setForm((f) => ({ ...f, latitude: v.lat.toFixed(7), longitude: v.lng.toFixed(7) }))}
