@@ -21,8 +21,14 @@ services:
         sync: false   # set manually in Render dashboard
       - key: JWT_EXPIRES_IN
         value: 8h
-      - key: CORS_ORIGINS
-        sync: false   # set to your Vercel URL after deploy
+      - key: SUPERADMIN_NAME
+        value: Super Admin
+      - key: SUPERADMIN_EMAIL
+        sync: false   # set in Render dashboard
+      - key: SUPERADMIN_TEMP_PASSWORD
+        sync: false   # set in Render dashboard (min 10 chars)
+      - key: SEED_SMVITM
+        value: "true"
       - key: COOKIE_SECURE
         value: "true"
       - key: PUBLIC_BASE_URL
