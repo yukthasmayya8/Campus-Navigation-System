@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  adminRoutesList, getRoute, publishRoute, deactivateRoute, reactivateRoute, discardRoute, errorMessage,
+  adminRoutesList, getRoute, publishRoute, deactivateRoute, reactivateRoute, discardRoute, updateRoute, errorMessage,
 } from '../../api.js';
 import { formatDistance } from '../../lib/geo.js';
 import MapView from '../MapView.jsx';
@@ -22,6 +22,8 @@ export default function RouteManager({ user, onChange }) {
   const [page, setPage] = useState(0);
   const [preview, setPreview] = useState(null); // {route, detail}
   const [history, setHistory] = useState(null);
+  const [editing, setEditing] = useState(null); // {route, detail}
+  const [editForm, setEditForm] = useState({ routeName: '', directionality: 'one_way', stairs: '', ramp: '', covered: '', notes: '' });
 
   async function load(pg = page, status = statusFilter) {
     setLoading(true); setErr('');
@@ -33,11 +35,39 @@ export default function RouteManager({ user, onChange }) {
   }
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function openPreview(route) {
+  async function openEdit(route) {
     setErr(''); setBusy(true);
     try {
       const detail = await getRoute(route.routeId);
-      setPreview({ route, detail });
+      setEditing({ route, detail });
+      setEditForm({
+        routeName: detail.routeName || '',
+        directionality: detail.directionality || 'one_way',
+        stairs: detail.hasStairs === null ? '' : String(detail.hasStairs),
+        ramp: detail.hasRamp === null ? '' : String(detail.hasRamp),
+        covered: detail.isCovered === null ? '' : String(detail.isCovered),
+        notes: detail.notes || '',
+      });
+    } catch (e) { setErr(errorMessage(e)); } finally { setBusy(false); }
+  }
+
+  async function saveEdit() {
+    if (!editing) return;
+    setBusy(true); setErr(''); setMsg('');
+    try {
+      const updated = await updateRoute(editing.detail.routeId, {
+        expectedVersion: editing.detail.versionNumber,
+        routeName: editForm.routeName.trim(),
+        directionality: editForm.directionality,
+        hasStairs: editForm.stairs === '' ? null : editForm.stairs === 'true',
+        hasRamp: editForm.ramp === '' ? null : editForm.ramp === 'true',
+        isCovered: editForm.covered === '' ? null : editForm.covered === 'true',
+        notes: editForm.notes.trim() || null,
+      });
+      setEditing(null);
+      setMsg('Route updated.');
+      await load();
+      onChange?.();
     } catch (e) { setErr(errorMessage(e)); } finally { setBusy(false); }
   }
 
@@ -100,7 +130,8 @@ export default function RouteManager({ user, onChange }) {
                   <td><span className={`badge ${r.status}`}>{r.status}</span></td>
                   <td>
                     <div className="actions">
-                      <button type="button" onClick={() => openPreview(r)} disabled={busy}>Preview</button>
+                      <button type="button" onClick={() => openEdit(r)} disabled={busy}>Edit</button>
+                        <button type="button" onClick={() => openPreview(r)} disabled={busy}>Preview</button>
                       {r.status === 'draft' && (
                         <>
                           <button type="button" className="primary" style={{ width: 'auto' }} onClick={() => changeStatus(r, 'publish')} disabled={busy || (r.pointCount != null && r.pointCount < 2)}>Publish</button>
@@ -156,6 +187,61 @@ export default function RouteManager({ user, onChange }) {
                 <RouteFacts route={preview.detail} showDistance={false} detailed />
               </div>
               {preview.detail.notes && <p className="muted">{preview.detail.notes}</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editing && (
+        <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setEditing(null); }}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label={`Edit ${editing.detail.routeName}`}>
+            <div className="modal-head">
+              <div>
+                <h3>Edit route</h3>
+                <div className="muted">{editing.detail.points?.length || 0} GPS points · {formatDistance(editing.detail.distanceMeters)}</div>
+              </div>
+              <button type="button" className="icon ghost" onClick={() => setEditing(null)} aria-label="Close">✕</button>
+            </div>
+            <div className="modal-body stack">
+              <label>Route name
+                <input value={editForm.routeName} onChange={(e) => setEditForm((f) => ({ ...f, routeName: e.target.value }))} />
+              </label>
+              <label>Directionality
+                <select value={editForm.directionality} onChange={(e) => setEditForm((f) => ({ ...f, directionality: e.target.value }))}>
+                  <option value="one_way">One way</option>
+                  <option value="bidirectional">Bidirectional</option>
+                </select>
+              </label>
+              <div className="row">
+                <label>Stairs
+                  <select value={editForm.stairs} onChange={(e) => setEditForm((f) => ({ ...f, stairs: e.target.value }))}>
+                    <option value="">Not verified</option>
+                    <option value="true">Yes</option>
+                    <option value="false">No</option>
+                  </select>
+                </label>
+                <label>Ramp
+                  <select value={editForm.ramp} onChange={(e) => setEditForm((f) => ({ ...f, ramp: e.target.value }))}>
+                    <option value="">Not verified</option>
+                    <option value="true">Yes</option>
+                    <option value="false">No</option>
+                  </select>
+                </label>
+                <label>Covered
+                  <select value={editForm.covered} onChange={(e) => setEditForm((f) => ({ ...f, covered: e.target.value }))}>
+                    <option value="">Not verified</option>
+                    <option value="true">Yes</option>
+                    <option value="false">No</option>
+                  </select>
+                </label>
+              </div>
+              <label>Notes
+                <textarea value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} rows={3} />
+              </label>
+            </div>
+            <div className="modal-foot">
+              <button type="button" onClick={() => setEditing(null)} disabled={busy}>Cancel</button>
+              <button type="button" className="primary" onClick={saveEdit} disabled={busy || !editForm.routeName.trim()}>Save changes</button>
             </div>
           </div>
         </div>
