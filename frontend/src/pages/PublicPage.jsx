@@ -277,22 +277,23 @@ export default function PublicPage() {
   const canFind = startSel && destSel && !sameChoice && !busy;
   const selectedHasGap = selected ? splitAtTimeGaps(selected.points || []).length > 1 : false;
   const destLoc = destSel?.loc || locations.find((l) => l.locationId === destSel?.id);
-  const nextWaypoint = (() => {
-    if (!selected || !navInfo) return destSel?.label || null;
+  const upcomingWaypoints = (() => {
+    if (!selected || !navInfo) return [];
     const segment = navInfo.segment ?? 0;
-    for (const w of selected.waypoints || []) {
+    const points = selected.points || [];
+    return (selected.waypoints || []).map((w) => {
       const loc = locations.find((l) => l.locationId === w.locationId);
-      if (!loc) continue;
+      if (!loc) return null;
       let best = Infinity;
-      (selected.points || []).forEach((p, i) => {
+      points.forEach((p) => {
         const d = Math.hypot(p.latitude - loc.latitude, p.longitude - loc.longitude);
         if (d < best) best = d;
       });
-      const idx = (selected.points || []).findIndex((p) => Math.hypot(p.latitude - loc.latitude, p.longitude - loc.longitude) === best);
-      if (idx > segment) return w.name || loc.name;
-    }
-    return destSel?.label || null;
+      const idx = points.findIndex((p) => Math.hypot(p.latitude - loc.latitude, p.longitude - loc.longitude) === best);
+      return idx > segment ? { ...w, name: w.name || loc.name, idx } : null;
+    }).filter(Boolean).sort((a, b) => a.idx - b.idx);
   })();
+  const nextWaypoint = upcomingWaypoints.length ? upcomingWaypoints[0].name : (destSel?.label || null);
 
   const sortedRoutes = (routes || []).slice().sort((a, b) => (
     routeSort === 'shortest'
@@ -530,6 +531,12 @@ export default function PublicPage() {
                     </div>
                   )}
                   {nextWaypoint && <div className="nav-next"><span>➡</span><span>Next: <strong>{nextWaypoint}</strong></span></div>}
+                   {upcomingWaypoints.length > 1 && (
+                     <div className="nav-next" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+                       <span><strong>Upcoming stops</strong></span>
+                       <span style={{ fontSize: 12 }}>{upcomingWaypoints.map((w) => w.name).join(' → ')}</span>
+                     </div>
+                   )}
                   {navInfo?.offPath && (
                     <div className="alert warn" style={{ marginBottom: 9 }}>
                       You appear to be off the recorded path. Follow the highlighted line; automatic rerouting is not available.
