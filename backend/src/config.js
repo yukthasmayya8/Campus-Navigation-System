@@ -5,6 +5,12 @@ const num = (v, d) => { const n = Number(v); return Number.isFinite(n) && v !== 
 const bool = (v, d = false) => (v === undefined || v === '' ? d : ['1', 'true', 'yes'].includes(String(v).toLowerCase()));
 
 const env = process.env.NODE_ENV || 'development';
+const deployedFrontendOrigin = 'https://campus-navigation-system-smvitm.netlify.app';
+const corsOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+if (!corsOrigins.includes(deployedFrontendOrigin)) corsOrigins.push(deployedFrontendOrigin);
 const config = {
   env,
   isProd: env === 'production',
@@ -13,7 +19,7 @@ const config = {
   databaseSsl: bool(process.env.DATABASE_SSL, false),
   jwtSecret: process.env.JWT_SECRET,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '8h',
-  corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:5173').split(',').map((s) => s.trim()).filter(Boolean),
+  corsOrigins,
   cookieSecure: bool(process.env.COOKIE_SECURE, env === 'production'),
   storageDriver: process.env.STORAGE_DRIVER || 'local',
   uploadDir: path.resolve(process.cwd(), process.env.UPLOAD_DIR || 'uploads'),

@@ -45,6 +45,7 @@ cd backend
 npm install
 # ensure backend/.env is configured (JWT_SECRET >= 32 chars, DATABASE_URL, etc.)
 npm run migrate
+# On an empty database, set SUPERADMIN_EMAIL and SUPERADMIN_PASSWORD in backend/.env first.
 npm run seed:smvitm        # idempotent: 6 SMVITM buildings + 3 routes
 # optional: npm run seed:superadmin
 npm run dev                # http://localhost:4000
@@ -59,12 +60,8 @@ npm run dev                # http://localhost:5173
 ```
 Open `http://localhost:5173`.
 
-### 5) Login (seeded admin)
-If `seed:smvitm` created the super admin:
-- Email: `admin@smvitm.ac.in`
-- Password: `SMVITMAdmin@2024`
-
-(If using `seed:superadmin`, credentials come from `backend/.env` and forced password change may apply.)
+### 5) Login (seeded Super Admin)
+Use the `SUPERADMIN_EMAIL` and `SUPERADMIN_PASSWORD` configured in `backend/.env`. A newly created Super Admin must change the password at first login. From the Super Admin dashboard, use **Accounts** to create Admin accounts.
 
 ## Running tests and builds
 

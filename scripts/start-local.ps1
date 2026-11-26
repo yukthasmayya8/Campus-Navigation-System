@@ -88,4 +88,4 @@ Write-Host "PostgreSQL: localhost:$PgPort  (data: $dataDir)" -ForegroundColor Gr
 Write-Host 'Backend:    http://localhost:4000/api/health' -ForegroundColor Green
 Write-Host 'Frontend:   http://localhost:5173' -ForegroundColor Green
 Write-Host ''
-Write-Host 'Admin login: admin@smvitm.ac.in / SMVITMAdmin@2024 (forced password change may apply)' -ForegroundColor Yellow
+Write-Host 'For first-time Super Admin setup, set SUPERADMIN_EMAIL and SUPERADMIN_PASSWORD in backend/.env, then run npm run seed:superadmin.' -ForegroundColor Yellow

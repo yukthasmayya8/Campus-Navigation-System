@@ -1,44 +1,43 @@
 services:
   - type: web
-    name: campus-nav-backend
+    name: campus-navigation-api
     runtime: node
-    region: singapore
-    plan: free
     rootDir: backend
+    plan: free
     buildCommand: npm install --omit=dev
-    startCommand: npm start
+    startCommand: npm run migrate && npm run seed:superadmin && npm start
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: "4000"
       - key: DATABASE_URL
-        sync: false   # set manually in Render dashboard
+        sync: false
       - key: DATABASE_SSL
         value: "true"
       - key: JWT_SECRET
-        sync: false   # set manually in Render dashboard
+        generateValue: true
       - key: JWT_EXPIRES_IN
         value: 8h
-      - key: SUPERADMIN_NAME
-        value: Super Admin
-      - key: SUPERADMIN_EMAIL
-        sync: false   # set in Render dashboard
-      - key: SUPERADMIN_TEMP_PASSWORD
-        sync: false   # set in Render dashboard (min 10 chars)
-      - key: SEED_SMVITM
-        value: "true"
+      - key: CORS_ORIGINS
+        value: https://campus-navigation-system-smvitm.netlify.app
       - key: COOKIE_SECURE
         value: "true"
-      - key: PUBLIC_BASE_URL
-        sync: false   # set to your Render service URL
-      - key: FRONTEND_URL
-        sync: false   # set to your Vercel URL
       - key: STORAGE_DRIVER
         value: local
-      - key: UPLOAD_DIR
-        value: uploads
+      - key: PUBLIC_BASE_URL
+        value: https://campus-navigation-system-5bj3.onrender.com
+      - key: FRONTEND_URL
+        value: https://campus-navigation-system-smvitm.netlify.app
+      - key: SUPERADMIN_NAME
+        value: SMVITM Super Admin
+      - key: SUPERADMIN_EMAIL
+        value: superadmin@smvitm.ac.in
+      - key: SUPERADMIN_PASSWORD
+        generateValue: true
+      - key: SMTP_URL
+        sync: false
+      - key: MAIL_FROM
+        sync: false
       - key: MAX_IMAGE_MB
         value: "3"
       - key: DUPLICATE_RADIUS_M

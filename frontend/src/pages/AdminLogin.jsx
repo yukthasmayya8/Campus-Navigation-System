@@ -15,6 +15,12 @@ export default function AdminLogin() {
   useEffect(() => {
     me().then(({ user }) => {
       if ((user?.role === 'admin' || user?.role === 'super_admin') && !user.forcePasswordChange) nav('/admin', { replace: true });
+      else if (user && user.role !== 'admin' && user.role !== 'super_admin') {
+        logout().catch(() => {}).finally(() => {
+          try { sessionStorage.setItem('campus-nav-notice', 'Admin sign-in is for campus staff. You are on the public campus map — no account is needed to search routes or navigate.'); } catch { /* ignore */ }
+          nav('/', { replace: true });
+        });
+      }
     }).catch(() => { /* not signed in */ });
   }, [nav]);
 
@@ -87,6 +93,8 @@ export default function AdminLogin() {
             <button type="submit" className="primary" disabled={busy}>{busy ? 'Signing in…' : 'Sign in →'}</button>
 
             <div className="login-foot">
+              <Link to="/admin/reset-password">Forgot password?</Link>
+              <br />
               <Link to="/">← Back to campus map</Link>
             </div>
           </form>

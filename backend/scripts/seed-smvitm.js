@@ -118,15 +118,23 @@ const ROUTES = [
 ];
 
 async function ensureSuperAdmin(client) {
-  const email = (config.superAdminEmail || 'admin@smvitm.ac.in').toLowerCase();
-  const { rows } = await client.query('SELECT user_id FROM users WHERE email=$1', [email]);
+  const { rows } = await client.query(
+    `SELECT u.user_id FROM users u JOIN roles r USING (role_id)
+     WHERE r.role_name='super_admin' AND u.account_status='active' ORDER BY u.user_id LIMIT 1`
+  );
   if (rows[0]) return rows[0].user_id;
-  const hash = await bcrypt.hash('SMVITMAdmin@2024', 12);
+  const email = process.env.SUPERADMIN_EMAIL?.trim().toLowerCase();
+  const password = process.env.SUPERADMIN_PASSWORD;
+  if (!email || !password) throw new Error('No active Super Admin exists; set SUPERADMIN_EMAIL and SUPERADMIN_PASSWORD to create one');
+  if (password.length < 10) throw new Error('SUPERADMIN_PASSWORD must be at least 10 characters');
+  const existing = await client.query('SELECT user_id FROM users WHERE email=$1', [email]);
+  if (existing.rows[0]) throw new Error(`SUPERADMIN_EMAIL ${email} is already used by another account`);
+  const hash = await bcrypt.hash(password, 12);
   const ins = await client.query(
     `INSERT INTO users (name, email, password_hash, role_id, account_status, force_password_change)
-     VALUES ($1,$2,$3,(SELECT role_id FROM roles WHERE role_name='super_admin'),'active', false)
+     VALUES ($1,$2,$3,(SELECT role_id FROM roles WHERE role_name='super_admin'),'active', true)
      RETURNING user_id`,
-    ['SMVITM Super Admin', email, hash]
+    [process.env.SUPERADMIN_NAME || 'SMVITM Super Admin', email, hash]
   );
   return ins.rows[0].user_id;
 }
@@ -257,7 +265,7 @@ async function upsertRoute(client, spec, ids, userId) {
     }
   });
   console.log('Seed complete.');
-  console.log(`Admin login: ${(config.superAdminEmail || 'admin@smvitm.ac.in')} / SMVITMAdmin@2024 (if created by this seed)`);
+  console.log('Any newly created Super Admin must change the password at first login.');
 })().catch((e) => {
   console.error('Seed failed:', e.message);
   process.exitCode = 1;

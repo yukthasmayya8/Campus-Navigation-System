@@ -22,11 +22,12 @@ Copy `backend/.env.example` to `backend/.env` and set:
 - `DATABASE_URL` – PostgreSQL connection string (PostGIS-enabled database)
 - `DATABASE_SSL` – `true` for managed Postgres providers that require TLS
 - `JWT_SECRET` – **at least 32 characters**
-- `SUPERADMIN_EMAIL`, `SUPERADMIN_PASSWORD` (if using `seed:superadmin`)
+- `SUPERADMIN_EMAIL`, `SUPERADMIN_PASSWORD` – required only when creating the first Super Admin; never commit the password
 - `CORS_ORIGINS` – comma-separated allowed frontend origins (e.g. `https://campus.example.edu`)
 - `COOKIE_SECURE` – `true` in production (HTTPS)
 - `PUBLIC_BASE_URL` – public backend base URL (used for generated image URLs), e.g. `https://api.example.edu`
 - `FRONTEND_URL` – frontend URL used in password reset links
+- `SMTP_URL`, `MAIL_FROM` – configure these to deliver password-reset emails in production
 - `STORAGE_DRIVER` – currently `local` (dev only). For production use persistent storage and return HTTPS URLs.
 
 ### Frontend
@@ -50,9 +51,11 @@ npm run seed:smvitm       # idempotent: 6 buildings + 3 routes for SMVITM (appro
 `npm run seed:smvitm` is **idempotent** and creates/updates:
 - 6 campus buildings: Main Academic Block, Central Library, Canteen, Computer Science & Engineering Block, Administrative Office Block, Sports & Activity Area
 - 3 pedestrian routes with waypoints/metadata
-- A super admin (if missing): `admin@smvitm.ac.in` / `SMVITMAdmin@2024` (created with `force_password_change=false` by seed)
+- A Super Admin if none exists, using `SUPERADMIN_EMAIL` and `SUPERADMIN_PASSWORD`; newly created accounts must change the password at first login
 
 **Important:** Building coordinates and route geometries in seed data are approximate. Verify/refine with on-site GPS and the Admin Route Recorder before production use.
+
+After signing in as Super Admin, use the **Accounts** tab to create Admin or Super Admin accounts. Temporary passwords are generated and shown once; new accounts must change them at first login. Password-reset emails require `SMTP_URL` and `MAIL_FROM`.
 
 ## Local development
 ```bash
@@ -68,7 +71,41 @@ npm run dev   # http://localhost:5173 (proxies /api and /uploads to backend)
 
 ## Production build & deployment
 
-### Frontend (Netlify/Vercel/static host)
+### Backend (Render)
+
+The repository includes a `render.yaml` Render Blueprint for the Express API:
+
+1. Push this repository to GitHub.
+2. In Render, choose **New > Blueprint** and select the repository.
+3. Set `DATABASE_URL` to the Neon PostgreSQL connection string when prompted. The blueprint configures the deployed origins and other non-secret values.
+4. Deploy. Render runs migrations and bootstraps `superadmin@smvitm.ac.in` only if that email is not already registered. Render generates the initial password as a secret environment value; the account must change it at first login. Existing accounts and passwords are never overwritten.
+5. Verify `https://campus-navigation-system-5bj3.onrender.com/api/health`.
+
+Find the generated `SUPERADMIN_PASSWORD` in the Render service's Environment settings and sign in with `superadmin@smvitm.ac.in`. The generated value is not stored in the repository. Configure `SMTP_URL` and `MAIL_FROM` to enable password reset by email.
+
+To reset an existing Super Admin, set `SUPERADMIN_EMAIL` and a new temporary `SUPERADMIN_PASSWORD` in the service's Environment settings, then run `npm run reset:superadmin` in the Render Shell. The command forces a password change at next login; remove the temporary password environment value afterward.
+
+Render does not preserve files uploaded under `backend/uploads` across deploys or restarts.
+For production images, configure persistent object storage before enabling uploads; the `local` storage driver
+is suitable only for a temporary deployment.
+
+### Frontend (Netlify)
+
+The repository's `netlify.toml` configures the GitHub-connected Netlify site:
+
+- Base directory: `frontend`
+- Build command: `npm run build`
+- Publish directory: `dist`
+- SPA fallback: `/*` to `/index.html`
+
+`frontend/.env.production` sets the production API origin:
+
+- `VITE_API_URL=https://campus-navigation-system-5bj3.onrender.com`
+
+Redeploy the frontend after changing `VITE_API_URL`. The Netlify origin is included in the backend CORS allowlist,
+and `COOKIE_SECURE=true` with `SameSite=None` supports the cross-origin admin session cookie.
+
+### Frontend (other static hosts)
 ```bash
 cd frontend
 npm install
@@ -76,7 +113,7 @@ npm run build
 ```
 - Deploy `frontend/dist`
 - Set `VITE_API_URL` to deployed backend URL
-- `netlify.toml` / `vercel.json` are included
+- `vercel.json` is included for Vercel deployments
 
 ### Backend (Node host with PostgreSQL/PostGIS)
 ```bash
