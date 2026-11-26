@@ -69,7 +69,7 @@ self.addEventListener('fetch', (e) => {
   if (url.origin === self.location.origin && (url.pathname.startsWith('/api') || url.pathname.startsWith('/uploads'))) return;
 
   // Map tiles: cache-first, only tiles the user has actually viewed.
-  if (url.hostname.endsWith('tile.openstreetmap.org')) {
+  if (url.hostname.endsWith('tile.openstreetmap.org') || url.hostname.endsWith('basemaps.cartocdn.com')) {
     e.respondWith((async () => {
       const c = await caches.open(TILES);
       const hit = await c.match(req);
