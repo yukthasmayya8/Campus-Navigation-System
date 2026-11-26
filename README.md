@@ -441,6 +441,8 @@ The migration creates PostGIS and trigram extensions and is safe to run repeated
 
 Never commit administrator passwords. Render generates a secret `SUPERADMIN_PASSWORD` and bootstraps `superadmin@smvitm.ac.in` only if that account does not already exist. Find the generated password in the Render service's Environment settings; the account must change it at first login. For other environments, set `SUPERADMIN_EMAIL` and `SUPERADMIN_PASSWORD` and run `npm run seed:superadmin` from `backend/`.
 
+To reset an existing Super Admin, set `SUPERADMIN_EMAIL` and a new temporary `SUPERADMIN_PASSWORD` as Render environment secrets, then run `npm run reset:superadmin` from the backend service root. This command updates only that Super Admin and forces a password change at next login. Remove the temporary password environment value after the command completes.
+
 After signing in, use the Super Admin **Accounts** tab to create Admin or Super Admin accounts. Generated temporary passwords are shown once and must be changed at first login. Password reset by email requires `SMTP_URL` and `MAIL_FROM` to be configured on the backend.
 
 The optional account seeder creates accounts only when they do not already exist. Set all credentials through the environment before running it:
