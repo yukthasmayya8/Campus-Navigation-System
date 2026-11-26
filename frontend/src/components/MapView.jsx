@@ -3,8 +3,8 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { locateOnPath, splitAtTimeGaps } from '../lib/geo.js';
 
-export const TILE_URL = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_TILE_URL) || 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-export const TILE_ATTRIBUTION = '© OpenStreetMap contributors © CARTO';
+export const TILE_URL = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_TILE_URL) || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+export const TILE_ATTRIBUTION = '© OpenStreetMap contributors';
 export const DEFAULT_CENTER = [13.3225, 74.7843]; // SMVITM, Bantakal
 
 const dot = (color, r = 7) => ({ radius: r, color: '#fff', weight: 2.5, fillColor: color, fillOpacity: 1 });
