@@ -439,7 +439,7 @@ The migration creates PostGIS and trigram extensions and is safe to run repeated
 
 ## Seed accounts
 
-Never commit administrator passwords. To create the first Super Admin, set `SUPERADMIN_EMAIL` and `SUPERADMIN_PASSWORD` in the backend environment, then run `npm run seed:superadmin` from `backend/`. A newly created Super Admin must change the password at first login. If no Super Admin exists, `seed:smvitm` can create one using the same environment variables.
+Never commit administrator passwords. Render generates a secret `SUPERADMIN_PASSWORD` and bootstraps `superadmin@smvitm.ac.in` only if that account does not already exist. Find the generated password in the Render service's Environment settings; the account must change it at first login. For other environments, set `SUPERADMIN_EMAIL` and `SUPERADMIN_PASSWORD` and run `npm run seed:superadmin` from `backend/`.
 
 After signing in, use the Super Admin **Accounts** tab to create Admin or Super Admin accounts. Generated temporary passwords are shown once and must be changed at first login. Password reset by email requires `SMTP_URL` and `MAIL_FROM` to be configured on the backend.
 

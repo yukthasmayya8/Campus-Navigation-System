@@ -5,7 +5,7 @@ services:
     rootDir: backend
     plan: free
     buildCommand: npm install --omit=dev
-    startCommand: npm run migrate && npm start
+    startCommand: npm run migrate && npm run seed:superadmin && npm start
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
@@ -28,6 +28,12 @@ services:
         value: https://campus-navigation-system-5bj3.onrender.com
       - key: FRONTEND_URL
         value: https://campus-navigation-system-smvitm.netlify.app
+      - key: SUPERADMIN_NAME
+        value: SMVITM Super Admin
+      - key: SUPERADMIN_EMAIL
+        value: superadmin@smvitm.ac.in
+      - key: SUPERADMIN_PASSWORD
+        generateValue: true
       - key: SMTP_URL
         sync: false
       - key: MAIL_FROM

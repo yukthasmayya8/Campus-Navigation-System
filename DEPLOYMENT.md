@@ -78,8 +78,10 @@ The repository includes a `render.yaml` Render Blueprint for the Express API:
 1. Push this repository to GitHub.
 2. In Render, choose **New > Blueprint** and select the repository.
 3. Set `DATABASE_URL` to the Neon PostgreSQL connection string when prompted. The blueprint configures the deployed origins and other non-secret values.
-4. Deploy. Render runs `npm run migrate && npm start`, so the schema is applied when the API starts.
+4. Deploy. Render runs migrations and bootstraps `superadmin@smvitm.ac.in` only if that email is not already registered. Render generates the initial password as a secret environment value; the account must change it at first login. Existing accounts and passwords are never overwritten.
 5. Verify `https://campus-navigation-system-5bj3.onrender.com/api/health`.
+
+Find the generated `SUPERADMIN_PASSWORD` in the Render service's Environment settings and sign in with `superadmin@smvitm.ac.in`. The generated value is not stored in the repository. Configure `SMTP_URL` and `MAIL_FROM` to enable password reset by email.
 
 Render does not preserve files uploaded under `backend/uploads` across deploys or restarts.
 For production images, configure persistent object storage before enabling uploads; the `local` storage driver
