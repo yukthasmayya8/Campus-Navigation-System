@@ -6,19 +6,4 @@ export interface SeedAccount {
   forcePasswordChange: boolean;
 }
 
-export const seedAccounts: SeedAccount[] = [
-  {
-    name: "Campus Admin",
-    email: "admin@smvitm.ac.in",
-    password: "SMVITMAdmin@2024",
-    role: "admin",
-    forcePasswordChange: false,
-  },
-  {
-    name: "SMVITM Super Admin",
-    email: "superadmin@smvitm.ac.in",
-    password: "SMVITMSuperAdmin@2024",
-    role: "super_admin",
-    forcePasswordChange: false,
-  },
-];
+export const seedAccounts = (accounts: SeedAccount[]): SeedAccount[] => accounts;

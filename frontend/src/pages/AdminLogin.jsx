@@ -95,6 +95,8 @@ export default function AdminLogin() {
             <button type="submit" className="primary" disabled={busy}>{busy ? 'Signing in…' : 'Sign in →'}</button>
 
             <div className="login-foot">
+              <Link to="/admin/reset-password">Forgot password?</Link>
+              <br />
               <Link to="/">← Back to campus map</Link>
             </div>
           </form>

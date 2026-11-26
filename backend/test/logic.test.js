@@ -4,6 +4,8 @@ const http = require('node:http');
 const { reverseRoute, compareRoutes, diffSnapshots, escapeLike, validLat, validLng } = require('../src/utils/geo');
 const { sniffImage } = require('../src/utils/image');
 const { createApp } = require('../src/app');
+const config = require('../src/config');
+const { sendMail } = require('../src/services/mailer');
 
 const route = (o) => ({ routeId: 1, sourceLocationId: 1, destinationLocationId: 2, hasStairs: null, hasRamp: null, isCovered: null,
   points: [{ sequenceNumber: 1, latitude: 1, longitude: 1 }, { sequenceNumber: 2, latitude: 2, longitude: 2 }, { sequenceNumber: 3, latitude: 3, longitude: 3 }],
@@ -51,4 +53,19 @@ test('CORS allows the deployed Netlify frontend with credentials', async (t) => 
   });
   assert.strictEqual(response.headers.get('access-control-allow-origin'), 'https://campus-navigation-system-smvitm.netlify.app');
   assert.strictEqual(response.headers.get('access-control-allow-credentials'), 'true');
+});
+
+test('production mailer requires SMTP instead of falling back to console', async () => {
+  const { isProd, smtpUrl } = config;
+  config.isProd = true;
+  config.smtpUrl = '';
+  try {
+    await assert.rejects(
+      sendMail({ to: 'user@example.edu', subject: 'Reset', text: 'one-time-reset-token' }),
+      /SMTP_URL must be configured/,
+    );
+  } finally {
+    config.isProd = isProd;
+    config.smtpUrl = smtpUrl;
+  }
 });

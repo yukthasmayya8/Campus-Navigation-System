@@ -100,17 +100,23 @@ function libraryToCSBlockPoints() {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 async function getOrCreateSuperAdmin(client) {
   const existing = await client.query(
-    "SELECT user_id FROM users WHERE email = $1", [config.superAdminEmail || 'admin@smvitm.ac.in'],
+    `SELECT u.user_id FROM users u JOIN roles r USING (role_id)
+     WHERE r.role_name='super_admin' AND u.account_status='active' ORDER BY u.user_id LIMIT 1`,
   );
   if (existing.rows[0]) return existing.rows[0].user_id;
 
-  // Create a super admin for seeding routes
-  const hash = await bcrypt.hash('SMVITMAdmin@2024', 12);
+  const email = process.env.SUPERADMIN_EMAIL?.trim().toLowerCase();
+  const password = process.env.SUPERADMIN_PASSWORD;
+  if (!email || !password) throw new Error('No active Super Admin exists; set SUPERADMIN_EMAIL and SUPERADMIN_PASSWORD to create one');
+  if (password.length < 10) throw new Error('SUPERADMIN_PASSWORD must be at least 10 characters');
+  const existingEmail = await client.query('SELECT user_id FROM users WHERE email=$1', [email]);
+  if (existingEmail.rows[0]) throw new Error(`SUPERADMIN_EMAIL ${email} is already used by another account`);
+  const hash = await bcrypt.hash(password, 12);
   const { rows } = await client.query(
     `INSERT INTO users (name, email, password_hash, role_id, force_password_change)
-     VALUES ($1, $2, $3, (SELECT role_id FROM roles WHERE role_name='super_admin'), false)
+     VALUES ($1, $2, $3, (SELECT role_id FROM roles WHERE role_name='super_admin'), true)
      RETURNING user_id`,
-    ['Super Admin', 'admin@smvitm.ac.in', hash],
+    [process.env.SUPERADMIN_NAME || 'Super Admin', email, hash],
   );
   return rows[0].user_id;
 }
@@ -229,8 +235,7 @@ async function insertPublishedRoute(client, userId, { name, srcId, dstId, direct
   });
 
   console.log('\n✅ Seed complete!\n');
-  console.log('  Admin login: admin@smvitm.ac.in / SMVITMAdmin@2024');
-  console.log('  (force_password_change=false for the seeded admin)\n');
+  console.log('  Any newly created Super Admin must change the password at first login.\n');
 })().catch((e) => {
   console.error('\n❌ Seed failed:', e.message);
   if (e.detail) console.error('  Detail:', e.detail);

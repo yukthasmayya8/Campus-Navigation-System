@@ -28,6 +28,10 @@ services:
         value: https://campus-navigation-system-5bj3.onrender.com
       - key: FRONTEND_URL
         value: https://campus-navigation-system-smvitm.netlify.app
+      - key: SMTP_URL
+        sync: false
+      - key: MAIL_FROM
+        sync: false
       - key: MAX_IMAGE_MB
         value: "3"
       - key: DUPLICATE_RADIUS_M

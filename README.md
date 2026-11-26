@@ -439,14 +439,11 @@ The migration creates PostGIS and trigram extensions and is safe to run repeated
 
 ## Seed accounts
 
-The account seed creates or updates the following development accounts:
+Never commit administrator passwords. To create the first Super Admin, set `SUPERADMIN_EMAIL` and `SUPERADMIN_PASSWORD` in the backend environment, then run `npm run seed:superadmin` from `backend/`. A newly created Super Admin must change the password at first login. If no Super Admin exists, `seed:smvitm` can create one using the same environment variables.
 
-| Role | Email | Password |
-| --- | --- | --- |
-| Admin | `admin@smvitm.ac.in` | `SMVITMAdmin@2024` |
-| Super Admin | `superadmin@smvitm.ac.in` | `SMVITMSuperAdmin@2024` |
+After signing in, use the Super Admin **Accounts** tab to create Admin or Super Admin accounts. Generated temporary passwords are shown once and must be changed at first login. Password reset by email requires `SMTP_URL` and `MAIL_FROM` to be configured on the backend.
 
-Run it locally or in the Render shell:
+The optional account seeder creates accounts only when they do not already exist. Set all credentials through the environment before running it:
 
 ```bash
 npm run seed:accounts
@@ -463,9 +460,7 @@ SUPERADMIN_EMAIL=superadmin@example.edu
 SUPERADMIN_PASSWORD=replace-with-a-secure-password
 ```
 
-These credentials are for development and demonstration. Change every default password before production use.
-
-Account definitions are also documented in [`backend/scripts/seed.ts`](backend/scripts/seed.ts).
+Seed scripts do not reset existing account passwords. Use the password-reset flow or the administrator account tools instead.
 
 ## Testing
 

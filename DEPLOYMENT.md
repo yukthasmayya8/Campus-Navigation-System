@@ -22,11 +22,12 @@ Copy `backend/.env.example` to `backend/.env` and set:
 - `DATABASE_URL` – PostgreSQL connection string (PostGIS-enabled database)
 - `DATABASE_SSL` – `true` for managed Postgres providers that require TLS
 - `JWT_SECRET` – **at least 32 characters**
-- `SUPERADMIN_EMAIL`, `SUPERADMIN_PASSWORD` (if using `seed:superadmin`)
+- `SUPERADMIN_EMAIL`, `SUPERADMIN_PASSWORD` – required only when creating the first Super Admin; never commit the password
 - `CORS_ORIGINS` – comma-separated allowed frontend origins (e.g. `https://campus.example.edu`)
 - `COOKIE_SECURE` – `true` in production (HTTPS)
 - `PUBLIC_BASE_URL` – public backend base URL (used for generated image URLs), e.g. `https://api.example.edu`
 - `FRONTEND_URL` – frontend URL used in password reset links
+- `SMTP_URL`, `MAIL_FROM` – configure these to deliver password-reset emails in production
 - `STORAGE_DRIVER` – currently `local` (dev only). For production use persistent storage and return HTTPS URLs.
 
 ### Frontend
@@ -50,9 +51,11 @@ npm run seed:smvitm       # idempotent: 6 buildings + 3 routes for SMVITM (appro
 `npm run seed:smvitm` is **idempotent** and creates/updates:
 - 6 campus buildings: Main Academic Block, Central Library, Canteen, Computer Science & Engineering Block, Administrative Office Block, Sports & Activity Area
 - 3 pedestrian routes with waypoints/metadata
-- A super admin (if missing): `admin@smvitm.ac.in` / `SMVITMAdmin@2024` (created with `force_password_change=false` by seed)
+- A Super Admin if none exists, using `SUPERADMIN_EMAIL` and `SUPERADMIN_PASSWORD`; newly created accounts must change the password at first login
 
 **Important:** Building coordinates and route geometries in seed data are approximate. Verify/refine with on-site GPS and the Admin Route Recorder before production use.
+
+After signing in as Super Admin, use the **Accounts** tab to create Admin or Super Admin accounts. Temporary passwords are generated and shown once; new accounts must change them at first login. Password-reset emails require `SMTP_URL` and `MAIL_FROM`.
 
 ## Local development
 ```bash
