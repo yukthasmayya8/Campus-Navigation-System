@@ -11,6 +11,7 @@
         "build": "npm run build --workspace frontend",
         "migrate": "npm run migrate --workspace backend",
         "seed:accounts": "npm run seed:accounts --workspace backend",
+        "reset:superadmin": "npm run reset:superadmin --workspace backend",
         "start": "npm run migrate --workspace backend && npm run seed:superadmin --workspace backend && npm start --workspace backend",
         "test": "npm test --workspace frontend && npm test --workspace backend"
     },

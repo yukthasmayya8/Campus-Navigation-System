@@ -83,7 +83,7 @@ The repository includes a `render.yaml` Render Blueprint for the Express API:
 
 Find the generated `SUPERADMIN_PASSWORD` in the Render service's Environment settings and sign in with `superadmin@smvitm.ac.in`. The generated value is not stored in the repository. Configure `SMTP_URL` and `MAIL_FROM` to enable password reset by email.
 
-To reset an existing Super Admin, set `SUPERADMIN_EMAIL` and a new temporary `SUPERADMIN_PASSWORD` in the service's Environment settings, then run `npm run reset:superadmin` from the backend service root. The command forces a password change at next login; remove the temporary password environment value afterward.
+To reset an existing Super Admin, set `SUPERADMIN_EMAIL` and a new temporary `SUPERADMIN_PASSWORD` in the service's Environment settings, then run `npm run reset:superadmin` in the Render Shell. The command forces a password change at next login; remove the temporary password environment value afterward.
 
 Render does not preserve files uploaded under `backend/uploads` across deploys or restarts.
 For production images, configure persistent object storage before enabling uploads; the `local` storage driver
