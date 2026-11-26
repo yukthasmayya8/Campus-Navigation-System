@@ -4,7 +4,7 @@ export class ApiError extends Error {
   }
 }
 
-const configuredApiUrl = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+const configuredApiUrl = (import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL || '')).replace(/\/+$/, '');
 const apiPrefix = configuredApiUrl.endsWith('/api') ? configuredApiUrl : `${configuredApiUrl}/api`;
 
 export const apiUrl = (path) => `${apiPrefix}${path.startsWith('/') ? path : `/${path}`}`;
