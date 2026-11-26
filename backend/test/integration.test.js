@@ -24,7 +24,8 @@ if (!TEST_DB) {
 }
 const originalDb = process.env.DATABASE_URL || '';
 const dbName = (url) => { try { return new URL(url).pathname.replace(/^\//, ''); } catch { return ''; } };
-if (dbName(TEST_DB) === dbName(originalDb)) {
+const isCi = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
+if (!isCi && dbName(TEST_DB) === dbName(originalDb)) {
   console.error('⚠  TEST_DATABASE_URL must point at a separate database (the suite truncates it). Skipping.');
   process.exit(0);
 }
