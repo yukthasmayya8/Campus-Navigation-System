@@ -3,8 +3,8 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { locateOnPath, splitAtTimeGaps } from '../lib/geo.js';
 
-export const TILE_URL = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_TILE_URL) || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-export const TILE_ATTRIBUTION = '© OpenStreetMap contributors';
+export const TILE_URL = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_TILE_URL) || 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+export const TILE_ATTRIBUTION = '© OpenStreetMap contributors © CARTO';
 export const DEFAULT_CENTER = [13.3225, 74.7843]; // SMVITM, Bantakal
 
 const dot = (color, r = 7) => ({ radius: r, color: '#fff', weight: 2.5, fillColor: color, fillOpacity: 1 });
@@ -99,8 +99,9 @@ export default function MapView({
     parts.forEach((part) => {
       if (part.length < 2) return;
       const latlngs = part.map((p) => [p.latitude, p.longitude]);
-      L.polyline(latlngs, { color: '#1a73e8', weight: 5, opacity: 0.9, lineCap: 'round', lineJoin: 'round' }).addTo(g);
-      L.polyline(latlngs, { color: '#fff', weight: 2, opacity: 0.45, dashArray: '1 14', dashOffset: '7' }).addTo(g);
+      L.polyline(latlngs, { color: '#0d47a1', weight: 9, opacity: 0.18, lineCap: 'round', lineJoin: 'round' }).addTo(g);
+      L.polyline(latlngs, { color: '#1a73e8', weight: 6, opacity: 0.95, lineCap: 'round', lineJoin: 'round' }).addTo(g);
+      L.polyline(latlngs, { color: '#fff', weight: 2, opacity: 0.5, dashArray: '1 14', dashOffset: '7' }).addTo(g);
     });
     // Explicit gap markers keep an interruption visible instead of implying a line was walked.
     if (parts.length > 1) {
