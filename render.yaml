@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: campus-nav-backend
+    runtime: node
+    region: singapore
+    plan: free
+    rootDir: backend
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "4000"
+      - key: DATABASE_URL
+        sync: false   # set manually in Render dashboard
+      - key: DATABASE_SSL
+        value: "true"
+      - key: JWT_SECRET
+        sync: false   # set manually in Render dashboard
+      - key: JWT_EXPIRES_IN
+        value: 8h
+      - key: CORS_ORIGINS
+        sync: false   # set to your Vercel URL after deploy
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: PUBLIC_BASE_URL
+        sync: false   # set to your Render service URL
+      - key: FRONTEND_URL
+        sync: false   # set to your Vercel URL
+      - key: STORAGE_DRIVER
+        value: local
+      - key: UPLOAD_DIR
+        value: uploads
+      - key: MAX_IMAGE_MB
+        value: "3"
+      - key: DUPLICATE_RADIUS_M
+        value: "15"

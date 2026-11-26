@@ -4,7 +4,15 @@
     "outputDirectory": "frontend/dist",
     "rewrites": [
         {
-            "source": "/((?!api/).*)",
+            "source": "/api/:path*",
+            "destination": "https://campus-navigation-system-5bj3.onrender.com/api/:path*"
+        },
+        {
+            "source": "/uploads/:path*",
+            "destination": "https://campus-navigation-system-5bj3.onrender.com/uploads/:path*"
+        },
+        {
+            "source": "/((?!api/|uploads/).*)",
             "destination": "/index.html"
         }
     ],

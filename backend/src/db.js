@@ -7,8 +7,12 @@ types.setTypeParser(20, (v) => Number(v));
 let pool;
 function getPool() {
   if (!pool) {
+    // Strip channel_binding param that pg doesn't understand (Neon adds it)
+    const connStr = (config.databaseUrl || '').replace(/[?&]channel_binding=[^&]*/g, (m) =>
+      m.startsWith('?') ? '?' : ''
+    ).replace(/\?$/, '');
     pool = new Pool({
-      connectionString: config.databaseUrl,
+      connectionString: connStr || config.databaseUrl,
       ssl: config.databaseSsl ? { rejectUnauthorized: false } : undefined,
       max: 10,
       idleTimeoutMillis: 30000,
