@@ -32,7 +32,17 @@ export default function LocationManager({ user, onChange }) {
 
   const setF = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
 
-  function startNew() { setEditing('new'); setForm(EMPTY); setErr(''); setMsg(''); }
+  function startNew() {
+    setEditing('new'); setForm(EMPTY); setErr(''); setMsg('');
+    // Pre-fill coordinates from the admin's current GPS position when available.
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (p) => setForm((f) => (f.latitude === '' ? { ...f, latitude: p.coords.latitude.toFixed(7), longitude: p.coords.longitude.toFixed(7) } : f)),
+        () => { /* leave manual/map entry */ },
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
+      );
+    }
+  }
   function startEdit(loc) {
     setEditing(loc);
     setForm({
