@@ -5,7 +5,7 @@ A full-stack campus navigation platform for **Shri Madhwa Vadiraja Institute of 
 The system provides building discovery, verified pedestrian-route alternatives, live GPS guidance, an administrator console, offline public reads, and version-controlled campus data.
 
 [![Backend](https://img.shields.io/badge/Backend-Render-46E3B7)](https://campus-navigation-system-5bj3.onrender.com/api/health)
-[![Frontend](https://img.shields.io/badge/Frontend-Vercel-black)](https://campus-navigation-system-izdq-git-main-yuktha7.vercel.app)
+[![Frontend](https://img.shields.io/badge/Frontend-Netlify-black)](https://campus-navigation-system-smvitm.netlify.app)
 [![Database](https://img.shields.io/badge/Database-Neon%20%2B%20PostGIS-00A6FF)](https://neon.com/)
 [![License](https://img.shields.io/badge/License-Private-red)](#license)
 
@@ -241,7 +241,7 @@ Browser
   |
   | HTTPS
   v
-Vercel / Vite React frontend
+Netlify / Vite React frontend
   |
   | REST API with HTTP-only cookies
   v
@@ -324,7 +324,7 @@ Public routes remain available for locations and navigation reads. Write routes 
 | Validation | Zod |
 | Security | Helmet, CORS, express-rate-limit |
 | Offline | IndexedDB, service worker, cached map tiles |
-| Hosting | Vercel and Render |
+| Hosting | Netlify and Render |
 
 ## Live deployment
 
@@ -332,7 +332,7 @@ Public routes remain available for locations and navigation reads. Write routes 
 | --- | --- |
 | Backend health | https://campus-navigation-system-5bj3.onrender.com/api/health |
 | Render API | https://campus-navigation-system-5bj3.onrender.com |
-| Vercel project | https://campus-navigation-system-izdq-git-main-yuktha7.vercel.app |
+| Netlify site | https://campus-navigation-system-smvitm.netlify.app |
 
 Set `VITE_API_URL` to the public Render API origin.
 
@@ -517,30 +517,22 @@ DATABASE_URL=<Neon PostgreSQL URL>
 DATABASE_SSL=true
 JWT_SECRET=<random secret of at least 32 characters>
 COOKIE_SECURE=true
-CORS_ORIGINS=<Vercel frontend origin>
+CORS_ORIGINS=https://campus-navigation-system-smvitm.netlify.app
 PUBLIC_BASE_URL=<Render backend URL>
-FRONTEND_URL=<Vercel frontend origin>
+FRONTEND_URL=https://campus-navigation-system-smvitm.netlify.app
 ```
 
-### Frontend: Vercel
+### Frontend: Netlify
 
-Use repository root configuration:
+The repository's `netlify.toml` provides the deployment configuration:
 
 ```text
-Framework: Vite
-Root Directory: repository root
+Base Directory: frontend
 Build Command: npm run build
-Install Command: npm install
-Output Directory: frontend/dist
+Publish Directory: dist
 ```
 
-Set:
-
-```env
-VITE_API_URL=https://campus-navigation-system-5bj3.onrender.com
-```
-
-The production value is also kept in [`frontend/.env.production`](frontend/.env.production).
+`VITE_API_URL` is set to the Render API origin in [`frontend/.env.production`](frontend/.env.production).
 
 ## Security
 

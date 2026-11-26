@@ -19,15 +19,15 @@ services:
       - key: JWT_EXPIRES_IN
         value: 8h
       - key: CORS_ORIGINS
-        sync: false
+        value: https://campus-navigation-system-smvitm.netlify.app
       - key: COOKIE_SECURE
         value: "true"
       - key: STORAGE_DRIVER
         value: local
       - key: PUBLIC_BASE_URL
-        sync: false
+        value: https://campus-navigation-system-5bj3.onrender.com
       - key: FRONTEND_URL
-        sync: false
+        value: https://campus-navigation-system-smvitm.netlify.app
       - key: MAX_IMAGE_MB
         value: "3"
       - key: DUPLICATE_RADIUS_M

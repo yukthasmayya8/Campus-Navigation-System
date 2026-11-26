@@ -74,36 +74,31 @@ The repository includes a `render.yaml` Render Blueprint for the Express API:
 
 1. Push this repository to GitHub.
 2. In Render, choose **New > Blueprint** and select the repository.
-3. Set these secret/environment values when prompted:
-   - `DATABASE_URL`: the Neon PostgreSQL connection string
-   - `CORS_ORIGINS`: the exact Vercel frontend origin, for example `https://your-app.vercel.app`
-   - `PUBLIC_BASE_URL`: the Render service URL, for example `https://campus-navigation-api.onrender.com`
-   - `FRONTEND_URL`: the same Vercel frontend origin
+3. Set `DATABASE_URL` to the Neon PostgreSQL connection string when prompted. The blueprint configures the deployed origins and other non-secret values.
 4. Deploy. Render runs `npm run migrate && npm start`, so the schema is applied when the API starts.
-5. Verify `https://your-render-service.onrender.com/api/health`.
+5. Verify `https://campus-navigation-system-5bj3.onrender.com/api/health`.
 
 Render does not preserve files uploaded under `backend/uploads` across deploys or restarts.
 For production images, configure persistent object storage before enabling uploads; the `local` storage driver
 is suitable only for a temporary deployment.
 
-### Frontend (Vercel)
+### Frontend (Netlify)
 
-Import the GitHub repository into Vercel and use these project settings:
+The repository's `netlify.toml` configures the GitHub-connected Netlify site:
 
-- Framework preset: `Vite`
-- Root directory: `frontend`
+- Base directory: `frontend`
 - Build command: `npm run build`
-- Output directory: `dist`
-- Install command: `npm install`
+- Publish directory: `dist`
+- SPA fallback: `/*` to `/index.html`
 
-Set this Vercel environment variable:
+`frontend/.env.production` sets the production API origin:
 
-- `VITE_API_URL=https://your-render-service.onrender.com`
+- `VITE_API_URL=https://campus-navigation-system-5bj3.onrender.com`
 
-Redeploy the frontend after changing `VITE_API_URL`. Its origin must be included in Render's `CORS_ORIGINS`,
-and `COOKIE_SECURE=true` with `SameSite=None` is used automatically for this cross-origin setup.
+Redeploy the frontend after changing `VITE_API_URL`. The Netlify origin is included in the backend CORS allowlist,
+and `COOKIE_SECURE=true` with `SameSite=None` supports the cross-origin admin session cookie.
 
-### Frontend (Netlify/Vercel/static host)
+### Frontend (other static hosts)
 ```bash
 cd frontend
 npm install
@@ -111,7 +106,7 @@ npm run build
 ```
 - Deploy `frontend/dist`
 - Set `VITE_API_URL` to deployed backend URL
-- `netlify.toml` / `vercel.json` are included
+- `vercel.json` is included for Vercel deployments
 
 ### Backend (Node host with PostgreSQL/PostGIS)
 ```bash

@@ -1,7 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert');
+const http = require('node:http');
 const { reverseRoute, compareRoutes, diffSnapshots, escapeLike, validLat, validLng } = require('../src/utils/geo');
 const { sniffImage } = require('../src/utils/image');
+const { createApp } = require('../src/app');
 
 const route = (o) => ({ routeId: 1, sourceLocationId: 1, destinationLocationId: 2, hasStairs: null, hasRamp: null, isCovered: null,
   points: [{ sequenceNumber: 1, latitude: 1, longitude: 1 }, { sequenceNumber: 2, latitude: 2, longitude: 2 }, { sequenceNumber: 3, latitude: 3, longitude: 3 }],
@@ -33,4 +35,20 @@ test('sniffImage checks content, not extension', () => {
   assert.strictEqual(sniffImage(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0])).ext, 'jpg');
   assert.strictEqual(sniffImage(Buffer.from('<?php echo 1; ?> not an image')), null);
   assert.strictEqual(sniffImage(Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WEBP')])).ext, 'webp');
+});
+
+test('CORS allows the deployed Netlify frontend with credentials', async (t) => {
+  const server = http.createServer(createApp());
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve, reject) => server.close((err) => err ? reject(err) : resolve())));
+
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/locations`, {
+    method: 'OPTIONS',
+    headers: {
+      Origin: 'https://campus-navigation-system-smvitm.netlify.app',
+      'Access-Control-Request-Method': 'GET',
+    },
+  });
+  assert.strictEqual(response.headers.get('access-control-allow-origin'), 'https://campus-navigation-system-smvitm.netlify.app');
+  assert.strictEqual(response.headers.get('access-control-allow-credentials'), 'true');
 });
