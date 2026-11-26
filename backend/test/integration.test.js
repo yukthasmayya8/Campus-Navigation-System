@@ -22,10 +22,16 @@ if (!TEST_DB) {
   console.error('⚠  Set TEST_DATABASE_URL to run integration tests. Skipping.');
   process.exit(0);
 }
+const originalDb = process.env.DATABASE_URL || '';
+const dbName = (url) => { try { return new URL(url).pathname.replace(/^\//, ''); } catch { return ''; } };
+if (dbName(TEST_DB) === dbName(originalDb)) {
+  console.error('⚠  TEST_DATABASE_URL must point at a separate database (the suite truncates it). Skipping.');
+  process.exit(0);
+}
 process.env.DATABASE_URL = TEST_DB;
 
 // Lazy-require AFTER patching the env so the pool connects to the test DB.
-const { getPool, withTransaction, close } = require('../src/db');
+const { getPool, close } = require('../src/db');
 const { createApp } = require('../src/app');
 const http = require('node:http');
 
@@ -96,6 +102,9 @@ test.before(async () => {
   try {
     await client.query('BEGIN');
     await client.query(sql);
+    // Hermetic start: drop data left behind by an interrupted run.
+    await client.query(`TRUNCATE audit_logs, route_waypoints, route_points, route_versions, routes,
+      location_versions, locations, password_reset_tokens, users RESTART IDENTITY CASCADE`);
     await client.query('COMMIT');
   } catch (e) {
     await client.query('ROLLBACK');
@@ -119,24 +128,44 @@ async function loginCookie(email, password) {
 // ═══════════════════════════════════════════════════════════════════════════
 // 1. Auth
 // ═══════════════════════════════════════════════════════════════════════════
-test('POST /auth/login – happy path sets cookie, returns user object', async (t) => {
-  await withTransaction(async (client) => {
-    await seedUser(client, { name: 'Auth Tester', email: 'auth@test.local', password: 'Password123', role: 'admin' });
+test('POST /auth/login – happy path sets cookie, returns user object', async () => {
+  const pool = getPool();
+  const c = await pool.connect();
+  let userId;
+  try {
+    await c.query('BEGIN');
+    userId = await seedUser(c, { name: 'Auth Tester', email: 'auth@test.local', password: 'Password123', role: 'admin' });
+    await c.query('COMMIT');
+  } finally { c.release(); }
+
+  try {
     const r = await req('POST', '/auth/login', { body: { email: 'auth@test.local', password: 'Password123' } });
     assert.strictEqual(r.status, 200);
     assert.ok(r.data.user.userId, 'userId missing');
     assert.ok(r.headers.get('set-cookie'), 'Cookie not set');
-    throw Object.assign(new Error('rollback'), { code: 'TEST_ROLLBACK' }); // force rollback
-  }).catch((e) => { if (e.message !== 'rollback') throw e; });
+  } finally {
+    const c2 = await pool.connect();
+    try { await c2.query('DELETE FROM users WHERE user_id=$1', [userId]); } finally { c2.release(); }
+  }
 });
 
 test('POST /auth/login – wrong password returns 401', async () => {
-  await withTransaction(async (client) => {
-    await seedUser(client, { name: 'Auth2', email: 'auth2@test.local', password: 'RightPass1', role: 'admin' });
+  const pool = getPool();
+  const c = await pool.connect();
+  let userId;
+  try {
+    await c.query('BEGIN');
+    userId = await seedUser(c, { name: 'Auth2', email: 'auth2@test.local', password: 'RightPass1', role: 'admin' });
+    await c.query('COMMIT');
+  } finally { c.release(); }
+
+  try {
     const r = await req('POST', '/auth/login', { body: { email: 'auth2@test.local', password: 'WrongPass1' } });
     assert.strictEqual(r.status, 401);
-    throw Object.assign(new Error('rollback'), { code: 'TEST_ROLLBACK' });
-  }).catch((e) => { if (e.message !== 'rollback') throw e; });
+  } finally {
+    const c2 = await pool.connect();
+    try { await c2.query('DELETE FROM users WHERE user_id=$1', [userId]); } finally { c2.release(); }
+  }
 });
 
 test('GET /auth/me – returns 401 without cookie', async () => {
@@ -168,7 +197,9 @@ test('POST /admin/locations – creates location, returns 201 with locationId', 
   // Cleanup
   const c2 = await pool.connect();
   try {
-    await c2.query('DELETE FROM locations WHERE name=$1', ['Integration Test Building']);
+    await c2.query('DELETE FROM location_versions WHERE location_id=$1', [r.data.locationId]);
+    await c2.query('DELETE FROM locations WHERE location_id=$1', [r.data.locationId]);
+    await c2.query('DELETE FROM audit_logs WHERE administrator_id=$1', [userId]);
     await c2.query('DELETE FROM users WHERE user_id=$1', [userId]);
   } finally { c2.release(); }
 });

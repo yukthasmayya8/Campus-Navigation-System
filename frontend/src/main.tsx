@@ -12,11 +12,24 @@ createRoot(rootEl).render(
     <BrowserRouter>
       <App />
     </BrowserRouter>
-  </React.StrictMode>
+  </React.StrictMode>,
 );
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch((e) => console.warn('SW registration failed', e));
+
+    const cacheCurrentAssets = () => {
+      const controller = navigator.serviceWorker.controller;
+      if (!controller) return;
+      const urls = performance.getEntriesByType('resource')
+        .map((r) => r.name)
+        .filter((u) => u.startsWith(window.location.origin) && !/\/api\/|\/uploads\//.test(u));
+      urls.push(window.location.href);
+      controller.postMessage({ type: 'CACHE_URLS', urls });
+    };
+
+    if (navigator.serviceWorker.controller) cacheCurrentAssets();
+    else navigator.serviceWorker.addEventListener('controllerchange', cacheCurrentAssets, { once: true });
   });
 }

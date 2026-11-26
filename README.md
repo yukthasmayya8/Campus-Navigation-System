@@ -88,13 +88,13 @@ Errors always look like `{ "error": { "code", "message", "details?" } }`.
 ## Notes
 - Image storage: `local` driver is for development only. Add a persistent driver in `src/services/storage.js` (Supabase Storage / Cloudinary) before the hosted demo — only the https URL is stored in PostgreSQL.
 - Not included (per scope): GPS smoothing, distance, off-path/arrival, auto start detection, rerouting, offline PWA, OpenAPI file (`docs/api-contracts.yaml` is still a Stage 1 task).
-- Frontend is only the backend-owner shell (map, start/destination dropdowns, alternatives, live position, login). Search/voice, location details, history UI and the admin dashboard are teammates' components.
+- Frontend is one integrated app: public map, search/voice, start/destination selection, recorded-route alternatives, live navigation, location details, and the full admin dashboard/recorder. Shared modules live in `frontend/src/api.js`, `components/MapView.jsx`, `components/SearchBox.jsx`, and `styles.css`.
 
 ## Added in this revision
 - **Stale responses:** `reqSeq` is bumped on every start/destination change (and every search/reroute), so a late response can never overwrite a newer selection.
 - **Publishing** now verifies the endpoints *and every waypoint* are still active (waypoint status still never hides an already-published route, per section 8.2).
 - **Route recording UI:** `/admin/record` — pick endpoints, walk, points are filtered (accuracy ≤ 25 m, ≥ 3 m spacing) and uploaded in batches every 5 s with sequence numbers (safe retries, kept on device if upload fails), mark waypoints, preview, save draft / publish / discard.
 - **Navigation:** GPS filtering + smoothing, distance (PostGIS length per route, remaining metres live), off-path detection (3 consecutive fixes > 30 m), arrival detection (≤ 15 m).
-- **Rerouting:** only along verified recorded paths — another alternative passing your position, else the nearest building becomes the new start and its recorded routes to the destination are offered.
+- **Off-path handling:** GPS filtering + smoothing, remaining distance, off-path detection (3 consecutive fixes > 30 m) and arrival detection (≤ 15 m). Off-path produces a warning only — there is no automatic rerouting or automatic route switching.
 - **Offline PWA:** manifest, service worker (app shell + only the map tiles you viewed), IndexedDB cache of locations and routes (refreshed on load / when back online, using `versionNumber`). Admin and all writes stay online-only.
 - **docs/api-contracts.yaml:** OpenAPI 3 contract for every endpoint (open in https://editor.swagger.io). Freeze it with `git tag api-v1.0` once the team has reviewed it.
