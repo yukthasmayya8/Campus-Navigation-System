@@ -17,6 +17,12 @@ export default function AdminHome() {
   const [err, setErr] = useState('');
   const tabsRef = useRef(null);
   const [tabOverflow, setTabOverflow] = useState(false);
+  const isSuperAdmin = user?.role === 'super_admin';
+  const tabs = [
+    { key: 'locations', label: '📍 Locations' },
+    { key: 'routes', label: '🛤️ Routes' },
+    ...(isSuperAdmin ? [{ key: 'audit', label: '📋 Audit log' }, { key: 'accounts', label: '👤 Accounts' }] : []),
+  ];
 
   useEffect(() => {
     me()
@@ -84,13 +90,6 @@ export default function AdminHome() {
     await logout().catch(() => {});
     nav('/admin/login', { replace: true });
   }
-
-  const isSuperAdmin = user?.role === 'super_admin';
-  const tabs = [
-    { key: 'locations', label: '📍 Locations' },
-    { key: 'routes', label: '🛤️ Routes' },
-    ...(isSuperAdmin ? [{ key: 'audit', label: '📋 Audit log' }, { key: 'accounts', label: '👤 Accounts' }] : []),
-  ];
 
   if (!user) {
     return (
