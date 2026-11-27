@@ -3,9 +3,10 @@ import { Link } from 'react-router-dom';
 import MapView from '../components/MapView.jsx';
 import SearchBox from '../components/SearchBox.jsx';
 import LocationDetails from '../components/LocationDetails.jsx';
-import { getLocations, searchLocations, getRoutes, getNearest, syncOfflineData, offlineStatus } from '../api.js';
+import { getLocations, searchLocations, getRoutes, getNearest, syncOfflineData, offlineStatus, api } from '../api.js';
 import { PathTracker } from '../lib/tracker.js';
 import { formatDistance, formatWalkTime, splitAtTimeGaps, GAP_AFTER_MS, pathLength } from '../lib/geo.js';
+import { buildGraph, routeFromPosition, pathGeometry, nearestNode } from '../lib/routeGraph.js';
 import { useWakeLock } from '../hooks/useWakeLock.js';
 import { backgroundHint, wakeLockHint } from '../lib/platform.js';
 import RouteFacts from '../components/RouteFacts.jsx';
@@ -29,7 +30,8 @@ const inferCategory = (loc) => {
 const itemFor = (l) => ({ id: l.locationId, label: l.name, sublabel: l.description?.slice(0, 64) || '', icon: '🏢', loc: l });
 
 export default function PublicPage() {
-  const [locations, setLocations] = useState([]);
+  const [allRoutes, setAllRoutes] = useState([]);
+  const [graph, setGraph] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [landed, setLanded] = useState(false);
   const [category, setCategory] = useState('All');
@@ -78,6 +80,15 @@ export default function PublicPage() {
     loadLocations();
     refreshCache();
     if (navigator.onLine) sync();
+    // Load all published routes so the graph can connect recorded paths and support
+    // navigation from arbitrary (including intermediate) positions.
+    (async () => {
+      try {
+        const snap = await api('/offline/snapshot');
+        setAllRoutes(snap.routes || []);
+        setGraph(buildGraph(snap.routes || []));
+      } catch { /* offline or unavailable; keep empty graph */ }
+    })();
     const onOnline = () => { setOnline(true); loadLocations(); sync(); };
     const onOffline = () => setOnline(false);
     window.addEventListener('online', onOnline);
@@ -176,12 +187,37 @@ export default function PublicPage() {
     startWatch();
   }
 
-  function stopNav() {
-    stopWatch();
-    wake.release();
-    tracker.current = null;
-    navigatingRef.current = false;
-    setNavigating(false); setPos(null); setNavInfo(null); setGpsNote(''); setReroute(null);
+  function routeFromMyLocation() {
+    if (!destSel || !graph) { setNotice('Select a destination first.'); return; }
+    setGpsNote('');
+    if (!('geolocation' in navigator)) { setGpsNote('GPS not supported.'); return; }
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        const destLoc = destSel.loc || locations.find((l) => l.locationId === destSel.id);
+        if (!destLoc) { setNotice('Destination not found.'); return; }
+        const destNode = nearestNode(graph, destLoc.latitude, destLoc.longitude);
+        if (!destNode) { setNotice('No graph node near destination.'); return; }
+        const res = routeFromPosition(graph, p.coords.latitude, p.coords.longitude, destNode.node.id, 60);
+        if (!res) { setNotice('You are too far from any recorded path to connect. Move closer to a campus path and try again.'); return; }
+        const geom = pathGeometry(graph, res);
+        const pseudoRoute = {
+          routeId: `gps-${Date.now()}`,
+          routeName: `Route from your position to ${destLoc.name}`,
+          points: geom,
+          waypoints: [],
+          distanceMeters: Math.round(res.distance),
+          hasStairs: null, hasRamp: null, isCovered: null,
+          reversed: false,
+          segments: [geom],
+        };
+        resetPlanning();
+        setDestSel(destSel);
+        chooseRoute(pseudoRoute);
+        setNotice(`Route calculated from your GPS position (≈ ${formatDistance(res.distance)}). Follow the highlighted path.`);
+      },
+      (err) => setGpsNote(err.code === 1 ? 'Location permission denied.' : 'Could not get your position.'),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    );
   }
 
   function resetPlanning() {
@@ -427,6 +463,12 @@ export default function PublicPage() {
             <button type="button" className="primary" disabled={!canFind} onClick={findRoutes}>
               {busy ? 'Searching…' : 'Find routes'}
             </button>
+
+            {destSel && (
+              <button type="button" onClick={routeFromMyLocation} style={{ width: 'auto' }}>
+                📍 Route from my current location
+              </button>
+            )}
 
             {destLoc && !routes && (
               <div className="loc-card">

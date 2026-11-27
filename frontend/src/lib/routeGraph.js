@@ -226,3 +226,19 @@ export function nearestNode(graph, lat, lng) {
   }
   return best;
 }
+export function pathGeometry(graph, result) {
+  if (!result || !result.edges) return [];
+  const pts = [];
+  for (const e of result.edges) {
+    const a = graph.nodes[e.from], b = graph.nodes[e.to];
+    if (pts.length === 0) pts.push({ latitude: a.lat, longitude: a.lng });
+    pts.push({ latitude: b.lat, longitude: b.lng });
+  }
+  // dedupe consecutive duplicates
+  const out = [];
+  for (const p of pts) {
+    const last = out[out.length - 1];
+    if (!last || last.latitude !== p.latitude || last.longitude !== p.longitude) out.push(p);
+  }
+  return out;
+}
