@@ -187,6 +187,28 @@ export default function PublicPage() {
     startWatch();
   }
 
+  function stopNav() {
+    stopWatch();
+    wake.release();
+    tracker.current = null;
+    navigatingRef.current = false;
+    setNavigating(false); setPos(null); setNavInfo(null); setGpsNote(''); setReroute(null);
+  }
+
+  function retryGps() {
+    if (!tracker.current) return;
+    if (!('geolocation' in navigator)) { setGpsNote('This browser does not support GPS.'); return; }
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        const r = tracker.current.update({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy, timestamp: p.timestamp });
+        if (r.ok) { setGpsNote(''); setPos({ ...r.position, accuracy: r.accuracy }); posRef.current = r.position; setNavInfo(r); }
+        else setGpsNote(r.reason === 'low_accuracy' ? 'GPS signal weak. Move outdoors and retry.' : 'Waiting for a valid GPS fix…');
+      },
+      (err) => setGpsNote(err.code === 1 ? 'Location permission denied. Allow it in browser settings.' : 'Could not get GPS. Move outdoors and retry.'),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    );
+  }
+
   function routeFromMyLocation() {
     if (!destSel || !graph) { setNotice('Select a destination first.'); return; }
     setGpsNote('');
@@ -269,53 +291,6 @@ export default function PublicPage() {
     } finally {
       if (seq === reqSeq.current) setBusy(false);
     }
-  }
-
-  function startNav() {
-    if (!selected) return;
-    setGpsNote('');
-    if (!('geolocation' in navigator)) { setGpsNote('This browser does not support GPS. You can still follow the route on the map.'); return; }
-    tracker.current = new PathTracker(selected.points, { offPathMeters: OFFPATH_M, offPathFixes: OFFPATH_FIXES, arrivalMeters: ARRIVAL_M });
-    setNavInfo(null);
-    setNavigating(true);
-    setFollowMe(true);
-    setSheet('peek');
-    acquireWakeLock();
-    watchId.current = navigator.geolocation.watchPosition(
-      (p) => {
-        if (!tracker.current) return;
-        const r = tracker.current.update({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy, timestamp: p.timestamp });
-        if (!r.ok) {
-          setGpsNote(r.reason === 'low_accuracy'
-            ? `GPS signal weak (±${Math.round(p.coords.accuracy || 0)} m). Waiting for a better fix…`
-            : r.reason === 'jump' ? 'Ignored an unreliable GPS jump. Keep walking.'
-              : 'Waiting for a valid GPS fix…');
-          return;
-        }
-        setGpsNote(''); setPos({ ...r.position, accuracy: r.accuracy });
-        posRef.current = r.position;
-        setNavInfo(r);
-        if (r.offPath && Date.now() - rerouteCooldown.current > 20000 && destSel?.id) {
-          rerouteCooldown.current = Date.now();
-          getNearest(r.position.latitude, r.position.longitude)
-            .then((nearest) => {
-              if (nearest?.length) {
-                const from = nearest[0];
-                if (String(from.locationId) !== String(startSel?.id)) {
-                  getRoutes(from.locationId, destSel.id)
-                    .then((data) => { if (data.items?.length) setReroute({ fromName: from.name, routes: data.items }); })
-                    .catch(() => {});
-                }
-              }
-            }).catch(() => {});
-        }
-      },
-      (err) => setGpsNote(err.code === 1
-        ? 'Location permission denied. Allow location access to navigate.'
-        : err.code === 2 ? 'Position unavailable (weak GPS). The route stays visible on the map.'
-          : 'Timed out getting your position. Retrying…'),
-      { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 },
-    );
   }
 
   function chooseRoute(r) {
@@ -632,6 +607,7 @@ export default function PublicPage() {
                      </div>
                    )}
                   {!pos && !gpsNote && <div className="alert info">Waiting for your first GPS fix…</div>}
+                   <button type="button" onClick={retryGps} style={{ width: 'auto', fontSize: 12, marginTop: 6 }}>Retry GPS</button>
                   <div className="nav-actions">
                     <button type="button" onClick={stopNav}>Stop</button>
                     <button type="button" className={followMe ? 'secondary' : ''} onClick={() => setFollowMe((f) => !f)}>
