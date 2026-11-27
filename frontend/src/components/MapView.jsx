@@ -171,3 +171,51 @@ export default function MapView({
     </div>
   );
 }
+export function LocationPicker({ value, onChange, others = [], height = 230 }) {
+  const el = useRef(null);
+  const map = useRef(null);
+  const marker = useRef(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (!el.current) return undefined;
+    const center = value ? [value.lat, value.lng] : DEFAULT_CENTER;
+    const m = L.map(el.current, { zoomControl: true, attributionControl: false }).setView(center, 17);
+    L.tileLayer(TILE_URLS.standard, { maxZoom: 20 }).addTo(m);
+    map.current = m;
+    setReady(true);
+    m.on('click', (e) => {
+      const { lat, lng } = e.latlng;
+      if (marker.current) marker.current.setLatLng([lat, lng]);
+      else {
+        marker.current = L.marker([lat, lng], { draggable: true }).addTo(m);
+        marker.current.on('dragend', () => {
+          const p = marker.current.getLatLng();
+          onChange?.({ lat: p.lat, lng: p.lng });
+        });
+      }
+      onChange?.({ lat, lng });
+    });
+    return () => { m.remove(); map.current = null; marker.current = null; };
+  }, []);
+
+  useEffect(() => {
+    if (!ready || !map.current) return;
+    (others || []).forEach((l) => {
+      L.circleMarker([l.latitude, l.longitude], { radius: 5, color: '#999', weight: 1, fillOpacity: 0.5 }).addTo(map.current);
+    });
+    if (value) {
+      if (!marker.current) {
+        marker.current = L.marker([value.lat, value.lng], { draggable: true }).addTo(map.current);
+        marker.current.on('dragend', () => {
+          const p = marker.current.getLatLng();
+          onChange?.({ lat: p.lat, lng: p.lng });
+        });
+      } else {
+        marker.current.setLatLng([value.lat, value.lng]);
+      }
+    }
+  }, [ready, value, others, onChange]);
+
+  return <div ref={el} style={{ width: '100%', height, borderRadius: 12, overflow: 'hidden' }} />;
+}
