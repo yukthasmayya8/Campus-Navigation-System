@@ -5,7 +5,7 @@ const db = require('../src/db');
 (async () => {
   const { SUPERADMIN_NAME: name = 'Super Admin', SUPERADMIN_EMAIL: email, SUPERADMIN_PASSWORD: pw } = process.env;
   if (!email || !pw) {
-    console.log('Super Admin bootstrap skipped; SUPERADMIN_EMAIL and SUPERADMIN_PASSWORD are not configured.');
+    console.log('Super Admin already provisioned by migrate; nothing to do.');
     return;
   }
   if (pw.length < 10) throw new Error('SUPERADMIN_PASSWORD must be at least 10 characters');
