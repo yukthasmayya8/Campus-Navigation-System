@@ -571,3 +571,15 @@ Publish Directory: dist
 ## License
 
 This repository is private and is intended for the SMVITM campus navigation project. A public redistribution license is not currently defined.
+
+## Recent capabilities (latest)
+
+- **Graph-based navigation engine** (`frontend/src/lib/routeGraph.js`): converts recorded routes into a connected graph (nodes + edges), supports bidirectional routing, Dijkstra shortest paths, Yen-style K-shortest alternative routes, and point-to-segment projection for intermediate starting positions.
+- **Live rerouting:** when a user deviates from the planned route, the app suggests alternative routes from the nearest building to the destination.
+- **Satellite map:** Map/Satellite toggle using free Esri World Imagery (no API key, proper attribution).
+- **GPS auto-fill for buildings:** admins can tap "Use my current location" or the map picker instead of typing coordinates.
+- **Landmark marking during recording:** admins can create new landmarks at their current GPS position while recording a route.
+- **Route editing:** admins can edit route metadata (name, directionality, stairs/ramp/covered, notes) after recording.
+- **PWA/offline:** service worker caches shell + assets + viewed tiles; IndexedDB caches locations/routes; offline banner and fallback.
+- **Same-origin API proxy:** Netlify/Vercel proxy `/api` and `/uploads` to Render for reliable cookie auth.
+- **CI:** GitHub Actions runs with a PostGIS service container; backend tests are hermetic on an isolated database.
