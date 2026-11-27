@@ -37,6 +37,22 @@ const db = require('../src/db');
       console.log('No superadmin credentials available; skipping superadmin seed.');
     }
 
+    // Ensure a dedicated Super Admin account with known demo credentials.
+    const dedicatedEmail = 'superadmin@smvitm.ac.in';
+    const dedicatedPw = 'SMVITMAdmin@2024';
+    const dedicatedExists = await client.query(`SELECT 1 FROM users WHERE email=$1`, [dedicatedEmail]);
+    if (!dedicatedExists.rows[0]) {
+      await client.query('BEGIN');
+      await client.query(
+        `INSERT INTO users (name,email,password_hash,role_id,account_status,force_password_change) VALUES ($1,$2,$3,2,'active',false)`,
+        ['SMVITM Super Admin', dedicatedEmail, await bcrypt.hash(dedicatedPw, 12)],
+      );
+      await client.query('COMMIT');
+      console.log(`Dedicated Super Admin created: ${dedicatedEmail} / ${dedicatedPw}`);
+    } else {
+      console.log(`Dedicated Super Admin already exists: ${dedicatedEmail}`);
+    }
+
     // Seed baseline campus data only when the database is empty, so production edits are preserved.
     const countRes = await client.query('SELECT COUNT(*)::int AS c FROM locations');
     if (countRes.rows[0].c === 0) {
