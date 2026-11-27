@@ -56,8 +56,8 @@ export default function PublicPage() {
   const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
   const [cache, setCache] = useState({ syncedAt: null, routes: 0 });
   const [followMe, setFollowMe] = useState(true);
-  const [detailsId, setDetailsId] = useState(null);
-  const [sheet, setSheet] = useState('peek');
+  const [reroute, setReroute] = useState(null);
+  const rerouteCooldown = useRef(0);
 
   const watchId = useRef(null);
   const tracker = useRef(null);
@@ -138,6 +138,20 @@ export default function PublicPage() {
         setGpsNote(''); setPos({ ...r.position, accuracy: r.accuracy });
         posRef.current = r.position;
         setNavInfo(r);
+        if (r.offPath && Date.now() - rerouteCooldown.current > 20000 && destSel?.id) {
+          rerouteCooldown.current = Date.now();
+          getNearest(r.position.latitude, r.position.longitude)
+            .then((nearest) => {
+              if (nearest?.length) {
+                const from = nearest[0];
+                if (String(from.locationId) !== String(startSel?.id)) {
+                  getRoutes(from.locationId, destSel.id)
+                    .then((data) => { if (data.items?.length) setReroute({ fromName: from.name, routes: data.items }); })
+                    .catch(() => {});
+                }
+              }
+            }).catch(() => {});
+        }
       },
       (err) => setGpsNote(err.code === 1
         ? 'Location permission denied. Allow location access to navigate.'
@@ -167,7 +181,7 @@ export default function PublicPage() {
     wake.release();
     tracker.current = null;
     navigatingRef.current = false;
-    setNavigating(false); setPos(null); setNavInfo(null); setGpsNote('');
+    setNavigating(false); setPos(null); setNavInfo(null); setGpsNote(''); setReroute(null);
   }
 
   function resetPlanning() {
@@ -245,6 +259,20 @@ export default function PublicPage() {
         setGpsNote(''); setPos({ ...r.position, accuracy: r.accuracy });
         posRef.current = r.position;
         setNavInfo(r);
+        if (r.offPath && Date.now() - rerouteCooldown.current > 20000 && destSel?.id) {
+          rerouteCooldown.current = Date.now();
+          getNearest(r.position.latitude, r.position.longitude)
+            .then((nearest) => {
+              if (nearest?.length) {
+                const from = nearest[0];
+                if (String(from.locationId) !== String(startSel?.id)) {
+                  getRoutes(from.locationId, destSel.id)
+                    .then((data) => { if (data.items?.length) setReroute({ fromName: from.name, routes: data.items }); })
+                    .catch(() => {});
+                }
+              }
+            }).catch(() => {});
+        }
       },
       (err) => setGpsNote(err.code === 1
         ? 'Location permission denied. Allow location access to navigate.'
@@ -548,6 +576,19 @@ export default function PublicPage() {
                     </div>
                   )}
                   {gpsNote && <div className="alert warn" style={{ marginBottom: 9 }}>{gpsNote}</div>}
+                   {reroute && (
+                     <div className="alert info" style={{ marginBottom: 9 }}>
+                       You appear off the planned path. Routes from <strong>{reroute.fromName}</strong> to your destination are available — tap one to switch:
+                       <div className="sort-row" style={{ marginTop: 8 }}>
+                         {reroute.routes.map((rt) => (
+                           <button key={rt.routeId} type="button" onClick={() => { chooseRoute(rt); setReroute(null); }}>
+                             {rt.routeName} (≈ {formatDistance(rt.distanceMeters || 0)})
+                           </button>
+                         ))}
+                       </div>
+                       <button type="button" className="link" style={{ marginTop: 6 }} onClick={() => setReroute(null)}>Dismiss</button>
+                     </div>
+                   )}
                   {!pos && !gpsNote && <div className="alert info">Waiting for your first GPS fix…</div>}
                   <div className="nav-actions">
                     <button type="button" onClick={stopNav}>Stop</button>
