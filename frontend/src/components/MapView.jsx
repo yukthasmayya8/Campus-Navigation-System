@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { locateOnPath, splitAtTimeGaps } from '../lib/geo.js';
+import { locateOnPath, splitAtTimeGaps, haversine } from '../lib/geo.js';
 
-export const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-export const TILE_ATTRIBUTION = '© OpenStreetMap contributors';
+export const TILE_URLS = {
+  standard: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+};
+export const TILE_ATTRIBUTIONS = {
+  standard: '© OpenStreetMap contributors',
+  satellite: 'Tiles © Esri — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+};
 export const DEFAULT_CENTER = [13.3225, 74.7843]; // SMVITM, Bantakal
 
 const dot = (color, r = 7) => ({ radius: r, color: '#fff', weight: 2.5, fillColor: color, fillOpacity: 1 });
@@ -35,32 +41,52 @@ function routeParts(route) {
  * Props:
  *   locations, route ({points,segments,waypoints}), userPosition, startId, destinationId
  *   fit (bool), followMe (bool), snapUser (bool), onSelectLocation(location), height, className
+ *   mapType: 'standard' | 'satellite' (controlled), onMapTypeChange
  */
 export default function MapView({
   locations = [], route = null, userPosition = null, startId, destinationId,
   fit = true, followMe = false, snapUser = false, onSelectLocation, height, className = '',
+  mapType: mapTypeProp, onMapTypeChange,
 }) {
   const el = useRef(null);
   const map = useRef(null);
+  const baseLayer = useRef(null);
   const layers = useRef({ places: null, route: null });
   const userMarker = useRef(null);
   const accuracyCircle = useRef(null);
   const selectRef = useRef(onSelectLocation);
   selectRef.current = onSelectLocation;
   const [ready, setReady] = useState(false);
+  const [mapType, setMapType] = useState(mapTypeProp || 'standard');
   const fitted = useRef('');
+
+  // Sync controlled prop
+  useEffect(() => { if (mapTypeProp && mapTypeProp !== mapType) setMapType(mapTypeProp); }, [mapTypeProp]);
 
   useEffect(() => {
     if (!el.current) return undefined;
     const m = L.map(el.current, { zoomControl: false, attributionControl: true }).setView(DEFAULT_CENTER, 17);
-    L.tileLayer(TILE_URL, { maxZoom: 20, attribution: TILE_ATTRIBUTION }).addTo(m);
+    baseLayer.current = L.tileLayer(TILE_URLS[mapType], { maxZoom: 20, attribution: TILE_ATTRIBUTIONS[mapType] }).addTo(m);
     L.control.zoom({ position: 'topright' }).addTo(m);
     layers.current.places = L.layerGroup().addTo(m);
     layers.current.route = L.layerGroup().addTo(m);
     map.current = m;
     setReady(true);
-    return () => { m.remove(); map.current = null; layers.current = { places: null, route: null }; };
+    return () => { m.remove(); map.current = null; baseLayer.current = null; layers.current = { places: null, route: null }; };
   }, []);
+
+  // Swap basemap when type changes
+  useEffect(() => {
+    if (!ready || !map.current || !baseLayer.current) return;
+    map.current.removeLayer(baseLayer.current);
+    baseLayer.current = L.tileLayer(TILE_URLS[mapType], { maxZoom: 20, attribution: TILE_ATTRIBUTIONS[mapType] }).addTo(map.current);
+    baseLayer.current.bringToBack();
+  }, [mapType, ready]);
+
+  const handleMapTypeChange = (t) => {
+    setMapType(t);
+    if (onMapTypeChange) onMapTypeChange(t);
+  };
 
   /* Places */
   useEffect(() => {
@@ -103,110 +129,45 @@ export default function MapView({
       L.polyline(latlngs, { color: '#1a73e8', weight: 6, opacity: 0.95, lineCap: 'round', lineJoin: 'round' }).addTo(g);
       L.polyline(latlngs, { color: '#fff', weight: 2, opacity: 0.5, dashArray: '1 14', dashOffset: '7' }).addTo(g);
     });
-    // Explicit gap markers keep an interruption visible instead of implying a line was walked.
     if (parts.length > 1) {
       parts.slice(0, -1).forEach((part) => {
         const end = part[part.length - 1];
         if (end) L.circleMarker([end.latitude, end.longitude], dot('#f9ab00', 6)).bindTooltip('GPS gap', { direction: 'top' }).addTo(g);
       });
-      parts.slice(1).forEach((part) => {
-        const start = part[0];
-        if (start && part.length < 2) {
-          L.circleMarker([start.latitude, start.longitude], { radius: 5, color: '#f9ab00', weight: 2, fillOpacity: 0 })
-            .bindTooltip('GPS gap — isolated fix', { direction: 'top' }).addTo(g);
-        }
-      });
     }
 
     (route?.waypoints || []).forEach((w) => {
-      const loc = w.locationId ? locations.find((l) => l.locationId === w.locationId) : null;
-      const p = loc || (w.latitude != null ? w : null);
-      if (p) L.circleMarker([p.latitude, p.longitude], dot('#f9ab00', 7)).bindTooltip(`Via: ${w.name || loc?.name || 'stop'}`, { direction: 'top', offset: [0, -6] }).addTo(g);
+      const loc = locations.find((l) => l.locationId === w.locationId);
+      if (loc) L.circleMarker([loc.latitude, loc.longitude], { radius: 8, color: '#fff', weight: 2, fillColor: '#9334e6', fillOpacity: 1 }).bindTooltip(w.name || loc.name, { direction: 'top' }).addTo(g);
     });
 
-    if (fit && parts.length) {
-      const key = `route:${route.routeId || route.id || ''}:${parts.reduce((n, p) => n + p.length, 0)}`;
-      if (fitted.current !== key) {
-        fitted.current = key;
-        try { map.current.fitBounds(L.latLngBounds(parts.flat().map((p) => [p.latitude, p.longitude])).pad(0.22), { maxZoom: 18 }); } catch { /* ignore */ }
+    if (userPosition) {
+      const p = snapUser ? snapPoint(userPosition, route?.points || []) : userPosition;
+      if (!userMarker.current) {
+        userMarker.current = L.circleMarker([p.latitude, p.longitude], { radius: 9, color: '#fff', weight: 3, fillColor: '#1a73e8', fillOpacity: 1 }).addTo(map.current);
+      } else {
+        userMarker.current.setLatLng([p.latitude, p.longitude]);
+      }
+      if (accuracyCircle.current) map.current.removeLayer(accuracyCircle.current);
+      if (userPosition.accuracy) {
+        accuracyCircle.current = L.circle([p.latitude, p.longitude], { radius: userPosition.accuracy, color: '#1a73e8', weight: 1, fillOpacity: 0.08 }).addTo(map.current);
       }
     }
-  }, [ready, route, locations, fit]);
 
-  /* User position */
-  useEffect(() => {
-    if (!ready || !map.current) return;
-    userMarker.current?.remove(); userMarker.current = null;
-    accuracyCircle.current?.remove(); accuracyCircle.current = null;
-    if (!userPosition) return;
-
-    const shown = snapUser && route?.points?.length >= 2 ? snapPoint(userPosition, route.points) : userPosition;
-    const ll = [shown.latitude, shown.longitude];
-    accuracyCircle.current = L.circle(ll, {
-      radius: Math.min(userPosition.accuracy || 15, 120),
-      color: '#1a73e8', fillColor: '#1a73e8', fillOpacity: 0.1, weight: 1,
-    }).addTo(map.current);
-    userMarker.current = L.circleMarker(ll, { radius: 9, color: '#fff', weight: 3, fillColor: '#1a73e8', fillOpacity: 1 })
-      .bindTooltip('You are here').addTo(map.current);
-    if (followMe) map.current.setView(ll, Math.max(map.current.getZoom(), 18), { animate: true });
-  }, [ready, userPosition, route, snapUser, followMe]);
-
-  return <div ref={el} className={`map ${className}`} style={height ? { height } : undefined} role="application" aria-label="Campus navigation map" />;
-}
-
-/**
- * Admin coordinate picker: one draggable marker. Tap the map or drag the pin.
- * value = {lat,lng} | null; others = [{latitude,longitude,name,status}]
- */
-export function LocationPicker({ value, onChange, others = [], height = 240 }) {
-  const el = useRef(null);
-  const map = useRef(null);
-  const marker = useRef(null);
-  const cb = useRef(onChange);
-  cb.current = onChange;
-
-  useEffect(() => {
-    if (!el.current) return undefined;
-    const first = others[0];
-    const m = L.map(el.current).setView(
-      value ? [value.lat, value.lng] : first ? [first.latitude, first.longitude] : DEFAULT_CENTER, 18,
-    );
-    L.tileLayer(TILE_URL, { maxZoom: 20, attribution: TILE_ATTRIBUTION }).addTo(m);
-    m.on('click', (e) => cb.current({ lat: e.latlng.lat, lng: e.latlng.lng }));
-    map.current = m;
-    return () => { m.remove(); map.current = null; marker.current = null; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (!map.current) return undefined;
-    const g = L.layerGroup().addTo(map.current);
-    others.forEach((o) => L.circleMarker([o.latitude, o.longitude], {
-      radius: 5, color: '#fff', weight: 1,
-      fillColor: o.status === 'inactive' ? '#c9ced4' : '#8a94a0', fillOpacity: 1,
-    }).bindTooltip(o.name).addTo(g));
-    return () => { g.remove(); };
-  }, [others]);
-
-  useEffect(() => {
-    const m = map.current;
-    if (!m) return;
-    if (!value) {
-      marker.current?.remove(); marker.current = null;
-      return;
+    if (route && fit && parts.length) {
+      const all = parts.flat();
+      try { map.current.fitBounds(L.latLngBounds(all.map((p) => [p.latitude, p.longitude])).pad(0.2), { maxZoom: 18 }); } catch { /* ignore */ }
     }
-    const ll = [value.lat, value.lng];
-    if (!marker.current) {
-      const icon = L.divIcon({
-        className: '',
-        html: '<div style="width:18px;height:18px;border-radius:50%;background:#1a73e8;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35)"></div>',
-        iconSize: [18, 18], iconAnchor: [9, 9],
-      });
-      marker.current = L.marker(ll, { draggable: true, icon, keyboard: true, title: 'Drag to correct the position' }).addTo(m);
-      marker.current.on('dragend', () => { const p = marker.current.getLatLng(); cb.current({ lat: p.lat, lng: p.lng }); });
-      m.panTo(ll);
-    } else marker.current.setLatLng(ll);
-  }, [value?.lat, value?.lng]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ready, route, userPosition, fit, snapUser, locations]);
 
-  return <div ref={el} className="map" style={{ height, borderRadius: 12 }} role="application" aria-label="Map. Drag the marker or tap to correct the position." />;
+  // Map type selector (top-left)
+  return (
+    <div className={`map ${className}`} style={height ? { height } : undefined}>
+      <div ref={el} style={{ width: '100%', height: '100%' }} />
+      <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 500, display: 'flex', gap: 4, background: 'rgba(255,255,255,0.9)', borderRadius: 8, padding: 3, boxShadow: '0 2px 6px rgba(0,0,0,0.15)' }}>
+        <button type="button" onClick={() => handleMapTypeChange('standard')} style={{ padding: '4px 10px', fontSize: 12, minHeight: 28, border: 'none', borderRadius: 6, background: mapType === 'standard' ? '#1a73e8' : 'transparent', color: mapType === 'standard' ? '#fff' : '#333', cursor: 'pointer' }}>Map</button>
+        <button type="button" onClick={() => handleMapTypeChange('satellite')} style={{ padding: '4px 10px', fontSize: 12, minHeight: 28, border: 'none', borderRadius: 6, background: mapType === 'satellite' ? '#1a73e8' : 'transparent', color: mapType === 'satellite' ? '#fff' : '#333', cursor: 'pointer' }}>Satellite</button>
+      </div>
+    </div>
+  );
 }
