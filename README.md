@@ -21,6 +21,7 @@ The system does not infer paths from roads or building coordinates. Approved rou
 
 - [Feature overview](#feature-overview)
 - [How features work](#how-features-work)
+- [Navigation implementation status](#navigation-implementation-status)
 - [Algorithms used](#algorithms)
 - [Architecture](#architecture)
 - [Data model](#data-model)
@@ -44,7 +45,7 @@ The system does not infer paths from roads or building coordinates. Approved rou
 | --- | --- | --- |
 | Building discovery | Search active campus buildings, view details, and locate the nearest building | Create, update, activate, deactivate, and upload images for buildings |
 | Route planning | Compare published routes between selected buildings | Record GPS tracks, create drafts, add waypoints, and publish routes |
-| Navigation | Track the device against a selected recorded polyline and receive off-path or arrival feedback | Preview gaps and route metadata before publishing |
+| Navigation | Track the device against a selected recorded polyline, receive off-path or arrival feedback, and review confirmation-only recovery paths | Preview gaps and route metadata before publishing |
 | Accessibility | View stairs, ramp, covered-path, and waypoint information | Set and verify accessibility metadata |
 | Offline use | Search cached buildings and browse cached route alternatives | Not available for writes or administration |
 | Data governance | Read only the current active public state | Manage versions, restore snapshots, and review audit logs |
@@ -109,17 +110,35 @@ The data-quality measures in place are:
 
 There is currently no floor/room model, indoor positioning, turn-by-turn voice guidance, or guaranteed routing to a particular building entrance. Coverage is limited to the buildings and connected paths represented in the published campus data.
 
+## Navigation implementation status
+
+The implementation distinguishes four separate navigation states. This distinction is intentional and should be considered the current public behavior, not a planned feature list:
+
+| Capability | Current implementation | Important limitation |
+| --- | --- | --- |
+| Search and building selection | Active buildings are loaded from the public API or the IndexedDB snapshot. The selected start and destination are explicit building records. | GPS is not used to overwrite the user's chosen start; a building suggestion is advisory only. |
+| Building-to-building routes | `GET /api/routes?from=<id>&to=<id>` returns only active, published routes with exact endpoints. Bidirectional routes are reversed in the response. | The backend does not synthesize a path, and unconnected buildings can correctly return no alternatives. |
+| Route from current GPS position | The frontend downloads published route data, builds a connected graph, snaps the GPS fix to an edge within 60 m, and runs Dijkstra to a graph node within 60 m of the destination. | It only follows currently published route geometry. It does not create missing segments or connect to roads outside that graph. |
+| Live guidance on a selected route | Browser `watchPosition` feeds a filtered GPS fix into `PathTracker`, which projects onto the route and reports remaining distance, off-path state, and arrival. | It is follow-the-recorded-polyline guidance, not a turn-by-turn pedestrian routing engine. |
+| Off-path recovery | After three accepted fixes more than 30 m from the active polyline, the app offers an alternative graph path or reports that none is available. | A switch requires the user's confirmation and is never automatic. |
+| Building detection | Verified GeoJSON-style boundary polygons can produce an `inside` result; with the current seed data, detections are approximate reference-point suggestions. | The current database schema does not store building boundary polygons. Approximate detection must not be treated as confirmed entry or indoor position. |
+| Indoor and entrance guidance | There is no implementation for rooms, floors, doors, or entrances. | The building coordinate is a reference point, not a surveyed entrance or an indoor location. |
+
+The graph currently used for GPS-origin and recovery planning is constructed from `GET /api/offline/snapshot`. The snapshot contains all active locations and published routes. Until that snapshot is available, the **Route from my current location** action is disabled rather than estimated from an unverified map or road network.
+
 ### Current building detection
 
-`frontend/src/lib/buildingDetection.js` keeps the raw GPS fix, reported accuracy, a building's stored reference coordinate, the user-selected start, and the destination separate. A current building is only claimed as “inside” when an explicitly supplied, verified boundary polygon contains the fix and accuracy is at most 30 m. The current database has no boundary polygons, so normal results are labelled **approximate** suggestions based on reference coordinates; poor accuracy, stale fixes, equidistant/“between” cases, and outside-campus cases produce no building claim. Hysteresis requires three consistent fixes before an approximate suggestion switches buildings. A suggestion never writes the navigation source: the user must explicitly choose a start building or choose “Route from my current location”.
+`frontend/src/lib/buildingDetection.js` keeps the raw GPS fix, reported accuracy, a building's stored reference coordinate, the user-selected start, and the destination separate. A current building is only claimed as “inside” when an explicitly supplied, verified boundary polygon contains the fix and accuracy is at most 30 m. General building suggestions are disabled above 40 m accuracy and for fixes older than 15 seconds. Approximate suggestions require the fix to remain within 80 m of a stored reference point.
+
+The current database and seed data do not provide boundary polygons, so normal results are labelled **approximate** suggestions based on reference coordinates. Poor accuracy, stale fixes, equidistant/“between” cases, and outside-campus cases produce no building claim. Hysteresis requires three consistent fixes before an approximate suggestion switches buildings. A suggestion never writes the navigation source: the user must explicitly choose a start building or choose “Route from my current location”.
 
 ### Live GPS navigation
 
 Live navigation uses `navigator.geolocation.watchPosition` with high-accuracy mode. The frontend filter checks:
 
 - Valid latitude and longitude
-- Usable reported accuracy
-- Maximum implied speed
+- Reported accuracy no worse than 30 metres
+- Maximum implied speed of 12 m/s
 - Movement from the previous accepted position
 - Accuracy-weighted smoothing
 
@@ -572,16 +591,17 @@ In production the frontend uses the same-origin `/api` proxy defined in `netlify
 
 ## Limitations
 
-- Navigation is limited to outdoor buildings and the published path network; there is no indoor/floor/room navigation or building-entrance-level positioning.
-- Building-to-building alternatives are exact-endpoint published routes. GPS-origin planning can connect to the graph only when the position is within 60 metres of a recorded edge; it cannot invent a missing campus path.
-- Off-path alternatives may be suggested from a nearby registered building, but the user must select one; automatic rerouting and automatic route switching are not performed.
-- Navigation and reroute candidates follow published recorded polylines; no unrecorded road or campus path is invented and no route switch happens without confirmation.
-- GPS accuracy depends on the device, surroundings, and operating-system permissions.
-- Seeded building coordinates and route geometry are approximate and must be field-verified before real-world use.
-- GPS gaps are left unjoined because the application does not infer missing movement.
-- Offline mode provides cached public reads only; administration and writes require connectivity.
-- Accessibility fields marked `NULL` mean "not verified," not "feature absent."
-- Uploaded images use local server storage and require object storage for durable production hosting.
+- **Scope:** The implemented system is outdoor, building-to-building wayfinding over published walking polylines. It has no indoor floors, rooms, doors, or building-entrance routing.
+- **Route discovery:** Building-to-building alternatives require exact endpoints and active/published route records. The backend cannot generate or infer a route for endpoint pairs that have no eligible recording.
+- **GPS-origin routing:** A GPS position must be within 60 metres of a graph edge and the destination must be within 60 metres of a graph node. Missing, disconnected, or unrecorded campus paths are not invented.
+- **Off-path behavior:** Three sustained readings beyond 30 metres trigger a recovery offer. The app does not automatically switch routes; the user must confirm a suggested alternate.
+- **GPS dependence:** Accuracy, arrival, and off-path decisions depend on browser permissions, device hardware, satellite conditions, surroundings, and operating-system behavior.
+- **Building detection:** Approximate suggestions are based on stored reference coordinates and are not a claim that the user is inside a building. Verified boundary detection requires boundary data that the current database does not contain.
+- **Seed quality:** Seeded building coordinates and routes are approximate. They require field verification and replacement with real recordings before use for real-world navigation.
+- **GPS gaps:** Time or explicit interruptions split route segments. The UI does not join across a gap or count the gap as walkable distance.
+- **Offline:** Cached public locations/routes and viewed map tiles can remain usable, but authentication, administration, uploads, route publishing, and all writes require network access.
+- **Accessibility metadata:** `NULL` means “not verified,” not “stairs absent,” “ramp absent,” or “not covered.”
+- **Storage:** Uploaded images use local server storage. Durable object storage is still required for a resilient production deployment.
 
 ## Documentation
 
@@ -604,8 +624,11 @@ This repository is private and is intended for the SMVITM campus navigation proj
 
 ## Recent capabilities (latest)
 
+- **Verified GPS and building separation:** the public app keeps raw and filtered GPS fixes separate from route projections and building sources; approximate suggestions never silently become a navigation start.
+- **Fresh-fix capture for public and admin use:** shared geolocation capture waits for a current, accurate fix, reports precision and timestamp, supports cancellation/retry, and falls back clearly for weak or denied GPS.
 - **Graph-based GPS-origin planning** (`frontend/src/lib/routeGraph.js`): converts published routes into a connected graph, supports bidirectional edges, Dijkstra shortest paths, a K-shortest-path helper, and point-to-segment projection for intermediate starting positions. The current public UI uses the graph for routes from the user's current position; building-to-building alternatives still come from the published-route endpoint.
-- **Off-path alternatives:** after sustained off-path readings, the app can suggest published routes from the nearest building to the destination. The user chooses whether to switch; no automatic reroute or route switch occurs.
+- **Confirmation-only off-path recovery:** after three sustained off-path readings, the app compares a graph result from the current projected position with the active polyline and offers a different published path only when one exists. The destination remains unchanged and the user confirms the switch.
+- **Stop and retry controls:** live navigation can be stopped explicitly, and GPS capture/navigation can recover from weak fixes or retries without changing the selected route automatically.
 - **Satellite map:** Map/Satellite toggle using free Esri World Imagery (no API key, proper attribution).
 - **GPS-first building capture:** admins wait for an acceptable fresh fix, review coordinates/accuracy/timestamp, retry if needed, and may fall back to explicit manual/map entry.
 - **Landmark marking during recording:** admins can create new landmarks at their current GPS position while recording a route.
