@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import MapView from '../components/MapView.jsx';
+import GpsDiagnosticsPanel from '../components/GpsDiagnosticsPanel.jsx';
 import SearchBox from '../components/SearchBox.jsx';
 import LocationDetails from '../components/LocationDetails.jsx';
-import { getLocations, searchLocations, getRoutes, syncOfflineData, offlineStatus, api } from '../api.js';
+import { getLocations, searchLocations, getRoutes, syncOfflineData, offlineStatus, api, me } from '../api.js';
 import { PathTracker } from '../lib/tracker.js';
 import { formatDistance, splitAtTimeGaps, GAP_AFTER_MS } from '../lib/geo.js';
 import { buildGraph, routeFromPosition, pathGeometry, nearestNode, alternativeFromPosition } from '../lib/routeGraph.js';
@@ -59,6 +60,10 @@ export default function PublicPage() {
   // Separate state: raw device GPS, filtered position used for route math, and building suggestion.
   const [rawGps, setRawGps] = useState(null);
   const [gpsState, setGpsState] = useState('initializing');
+  const [gpsGoodStreak, setGpsGoodStreak] = useState(0);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [filterAccepted, setFilterAccepted] = useState(null);
+  const [filterReason, setFilterReason] = useState(null);
   const [filteredGps, setFilteredGps] = useState(null);
   const [currentBuilding, setCurrentBuilding] = useState(null);
   const [routeSourceLabel, setRouteSourceLabel] = useState('');
@@ -96,6 +101,13 @@ export default function PublicPage() {
   selectedRef.current = selected;
   graphRef.current = graph;
   const wake = useWakeLock(navigating);
+
+  useEffect(() => {
+    me().then((data) => {
+      const u = data?.user ?? data;
+      if (u?.role === 'admin' || u?.role === 'super_admin') setIsAdmin(true);
+    }).catch(() => { /* public users do not get diagnostics */ });
+  }, []);
 
   const refreshCache = () => offlineStatus().then(setCache).catch(() => {});
   const loadLocations = useCallback(() => {
@@ -171,11 +183,13 @@ export default function PublicPage() {
     if (good && (previousState === 'low' || previousState === 'stale' || previousState === 'unavailable' || previousState === 'recovering')) {
       if (gpsGoodStreakRef.current < 3) {
         gpsGoodStreakRef.current += 1;
+        setGpsGoodStreak(gpsGoodStreakRef.current);
         return 'recovering';
       }
     }
     if (good) gpsGoodStreakRef.current = Math.min(3, gpsGoodStreakRef.current + 1);
     else gpsGoodStreakRef.current = 0;
+    setGpsGoodStreak(gpsGoodStreakRef.current);
     return base;
   };
 
@@ -244,7 +258,14 @@ export default function PublicPage() {
                   : confidence === 'moderate' ? 'moderate' : 'high');
           if (!tracker.current) return;
           const r = tracker.current.update(fix);
-          if (!r.ok) { setGpsNote(gpsReasonNote(r.reason, fix.accuracy)); return; }
+          if (!r.ok) {
+            setFilterAccepted(false);
+            setFilterReason(r.reason);
+            setGpsNote(gpsReasonNote(r.reason, fix.accuracy));
+            return;
+          }
+          setFilterAccepted(true);
+          setFilterReason('accepted');
           setGpsNote('');
           setFilteredGps({ ...r.position, accuracy: r.accuracy });
           setNavInfo(r);
@@ -253,6 +274,7 @@ export default function PublicPage() {
         },
         (err) => {
           gpsGoodStreakRef.current = 0;
+          setGpsGoodStreak(0);
           setGpsState(err.code === 1 ? 'unavailable' : 'low');
           setGpsNote(err.code === 1
             ? 'Location permission denied. Allow location access in your browser settings.'
@@ -313,10 +335,16 @@ export default function PublicPage() {
       setGpsState(classifyGpsState(building, confidence, gpsState));
       const r = tracker.current.update(fix);
       if (r.ok) {
+        setFilterAccepted(true);
+        setFilterReason('accepted');
         setGpsNote(warning || '');
         setFilteredGps({ ...r.position, accuracy: r.accuracy });
         setNavInfo(r);
-      } else setGpsNote(gpsReasonNote(r.reason, fix.accuracy));
+      } else {
+        setFilterAccepted(false);
+        setFilterReason(r.reason);
+        setGpsNote(gpsReasonNote(r.reason, fix.accuracy));
+      }
     } catch (e) { setGpsNote(e.message || 'Could not get your position. Move outdoors and retry.'); }
     finally { setLocatingMe(false); }
   }
@@ -823,6 +851,23 @@ export default function PublicPage() {
           <div className="alert error">
             {loadError} <button type="button" className="link" onClick={loadLocations}>Retry</button>
           </div>
+        )}
+        {isAdmin && (
+          <GpsDiagnosticsPanel
+            rawGps={rawGps}
+            filteredGps={filteredGps}
+            gpsState={gpsState}
+            gpsGoodStreak={gpsGoodStreak}
+            permissionState={rawGps ? 'granted' : 'unknown'}
+            filterAccepted={filterAccepted}
+            filterReason={filterReason}
+            navInfo={navInfo}
+            tracker={tracker.current}
+            selectedRoute={selected}
+            currentBuilding={currentBuilding}
+            destination={destLoc}
+            now={Date.now()}
+          />
         )}
         <div className="cache-note">
           {cache.syncedAt ? `Offline data saved ${new Date(cache.syncedAt).toLocaleString()}` : 'No offline data saved yet'}
