@@ -48,6 +48,26 @@ CREATE TABLE IF NOT EXISTS locations (
 CREATE INDEX IF NOT EXISTS locations_geom_gix   ON locations USING GIST (geom);
 CREATE INDEX IF NOT EXISTS locations_status_idx ON locations (status);
 CREATE INDEX IF NOT EXISTS locations_name_trgm  ON locations USING GIN (lower(name) gin_trgm_ops);
+
+CREATE TABLE IF NOT EXISTS location_suggestions (
+  suggestion_id     BIGSERIAL PRIMARY KEY,
+  name              TEXT NOT NULL CHECK (length(btrim(name)) BETWEEN 1 AND 150),
+  description       TEXT NOT NULL DEFAULT '' CHECK (length(description) <= 4000),
+  category          TEXT NOT NULL DEFAULT 'Other' CHECK (length(btrim(category)) BETWEEN 1 AND 60),
+  latitude          DOUBLE PRECISION NOT NULL CHECK (latitude BETWEEN -90 AND 90),
+  longitude         DOUBLE PRECISION NOT NULL CHECK (longitude BETWEEN -180 AND 180),
+  geom              geography(Point,4326) GENERATED ALWAYS AS
+                      (ST_SetSRID(ST_MakePoint(longitude, latitude),4326)::geography) STORED,
+  accuracy          DOUBLE PRECISION NULL CHECK (accuracy IS NULL OR accuracy >= 0),
+  status            TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  submitted_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  reviewed_by       BIGINT NULL REFERENCES users(user_id),
+  reviewed_at       TIMESTAMPTZ NULL,
+  review_notes      TEXT NULL CHECK (review_notes IS NULL OR length(review_notes) <= 2000),
+  approved_location_id BIGINT NULL REFERENCES locations(location_id)
+);
+CREATE INDEX IF NOT EXISTS location_suggestions_status_idx ON location_suggestions (status, submitted_at DESC);
+CREATE INDEX IF NOT EXISTS location_suggestions_geom_gix ON location_suggestions USING GIST (geom);
 -- Two active locations may not share a name (case-insensitive)
 CREATE UNIQUE INDEX IF NOT EXISTS locations_active_name_uq ON locations (lower(btrim(name))) WHERE status = 'active';
 

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import TopNav from '../components/TopNav.jsx';
 import LocationManager from '../components/admin/LocationManager.jsx';
+import LocationSuggestionsPanel from '../components/admin/LocationSuggestionsPanel.jsx';
 import RouteManager from '../components/admin/RouteManager.jsx';
 import AuditPanel from '../components/admin/AuditPanel.jsx';
 import AccountsPanel from '../components/admin/AccountsPanel.jsx';
@@ -20,6 +21,7 @@ export default function AdminHome() {
   const isSuperAdmin = user?.role === 'super_admin';
   const tabs = [
     { key: 'locations', label: '📍 Locations' },
+    { key: 'suggestions', label: '📌 Suggested places' },
     { key: 'routes', label: '🛤️ Routes' },
     ...(isSuperAdmin ? [{ key: 'audit', label: '📋 Audit log' }, { key: 'accounts', label: '👤 Accounts' }] : []),
   ];
@@ -158,6 +160,7 @@ export default function AdminHome() {
         </div>
 
         {tab === 'locations' && <LocationManager user={user} onChange={refreshStats} />}
+        {tab === 'suggestions' && <LocationSuggestionsPanel onChange={refreshStats} />}
         {tab === 'routes' && <RouteManager user={user} onChange={refreshStats} />}
         {tab === 'audit' && isSuperAdmin && <AuditPanel />}
         {tab === 'accounts' && isSuperAdmin && <AccountsPanel currentUser={user} />}

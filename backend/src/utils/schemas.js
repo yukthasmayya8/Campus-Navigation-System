@@ -35,6 +35,20 @@ const locationUpdate = z.object({
   confirmNearby: z.boolean().optional(),
 }).strict().refine((o) => Object.keys(o).some((k) => !['expectedVersion', 'confirmNearby'].includes(k)), 'Nothing to update');
 
+const locationSuggestionCreate = z.object({
+  name, description: z.string().trim().max(4000).default(''),
+  category: z.string().trim().min(1).max(60).default('Other'),
+  latitude: lat, longitude: lng,
+  accuracy: z.number().finite().min(0).max(100000).nullable().optional(),
+}).strict();
+
+const locationSuggestionUpdate = z.object({
+  name: name.optional(), description: z.string().trim().max(4000).optional(),
+  category: z.string().trim().min(1).max(60).optional(),
+  latitude: lat.optional(), longitude: lng.optional(),
+  accuracy: z.number().finite().min(0).max(100000).nullable().optional(),
+}).strict().refine((o) => Object.keys(o).length > 0, 'Nothing to update');
+
 const expected = z.object({ expectedVersion: version }).strict();
 const restore = z.object({ versionNumber: version, expectedVersion: version }).strict();
 
@@ -73,6 +87,6 @@ const password = z.string().min(10, 'Password must be at least 10 characters').m
 const email = z.string().trim().toLowerCase().email().max(254);
 
 module.exports = {
-  z, id, locationCreate, locationUpdate, expected, restore, routeCreate, routeUpdate, pointsBatch,
+  z, id, locationCreate, locationUpdate, locationSuggestionCreate, locationSuggestionUpdate, expected, restore, routeCreate, routeUpdate, pointsBatch,
   pagination, password, email, name,
 };

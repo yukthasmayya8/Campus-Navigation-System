@@ -8,6 +8,7 @@ const { requireAdmin, requireSuperAdmin } = require('../middleware/auth');
 const { query } = require('../db');
 const locations = require('../services/locations');
 const routes = require('../services/routes');
+const suggestions = require('../services/locationSuggestions');
 const users = require('../services/users');
 const { saveImage } = require('../services/storage');
 
@@ -53,6 +54,24 @@ router.get('/locations/:id/versions/:n', requireAdmin, asyncHandler(async (req, 
 router.post('/locations/:id/restore', requireSuperAdmin, asyncHandler(async (req, res) => {
   const b = S.restore.parse(req.body);
   res.json(await locations.restore(req.user, id.parse(req.params.id), b.versionNumber, b.expectedVersion));
+}));
+
+/* ===== Location suggestions (Admin review) ===== */
+router.get('/location-suggestions', requireAdmin, asyncHandler(async (req, res) => {
+  const q = z.object({ status: z.enum(['pending', 'approved', 'rejected']).optional() }).merge(S.pagination).parse(req.query);
+  res.json(await suggestions.list(q));
+}));
+router.get('/location-suggestions/:id', requireAdmin, asyncHandler(async (req, res) =>
+  res.json(await suggestions.get(id.parse(req.params.id)))));
+router.put('/location-suggestions/:id', requireAdmin, asyncHandler(async (req, res) =>
+  res.json(await suggestions.update(req.user, id.parse(req.params.id), S.locationSuggestionUpdate.parse(req.body)))));
+router.post('/location-suggestions/:id/approve', requireAdmin, asyncHandler(async (req, res) => {
+  const b = z.object({ confirmNearby: z.boolean().optional() }).parse(req.body || {});
+  res.json(await suggestions.approve(req.user, id.parse(req.params.id), b));
+}));
+router.post('/location-suggestions/:id/reject', requireAdmin, asyncHandler(async (req, res) => {
+  const b = z.object({ notes: z.string().trim().max(2000).optional() }).parse(req.body || {});
+  res.json(await suggestions.reject(req.user, id.parse(req.params.id), b.notes));
 }));
 
 /* ===== Routes ===== */

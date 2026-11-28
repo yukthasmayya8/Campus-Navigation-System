@@ -111,6 +111,8 @@ export async function getNearest(lat, lng) {
   }
 }
 
+export const submitLocationSuggestion = (body) => api('/location-suggestions', { method: 'POST', body });
+
 export const syncOfflineData = async () => (await offlineHelpers()).syncOffline(() => api('/offline/snapshot'));
 export const offlineStatus = async () => (await offlineHelpers()).readCache()
   .then((c) => ({ syncedAt: c.syncedAt, routes: c.routes.length }))
@@ -133,6 +135,11 @@ export const updateLocation = (id, body) => api(`/admin/locations/${id}`, { meth
 export const deactivateLocation = (id, expectedVersion) => api(`/admin/locations/${id}/deactivate`, { method: 'POST', body: { expectedVersion } });
 export const reactivateLocation = (id, expectedVersion) => api(`/admin/locations/${id}/reactivate`, { method: 'POST', body: { expectedVersion } });
 export const nearbyLocations = (lat, lng) => api(`/admin/locations/nearby${qs({ lat, lng })}`);
+export const adminLocationSuggestions = (params = {}) => api(`/admin/location-suggestions${qs(params)}`).then((d) => d.items ? d : d);
+export const getLocationSuggestion = (id) => api(`/admin/location-suggestions/${id}`);
+export const updateLocationSuggestion = (id, body) => api(`/admin/location-suggestions/${id}`, { method: 'PUT', body });
+export const approveLocationSuggestion = (id, body = {}) => api(`/admin/location-suggestions/${id}/approve`, { method: 'POST', body });
+export const rejectLocationSuggestion = (id, body = {}) => api(`/admin/location-suggestions/${id}/reject`, { method: 'POST', body });
 
 /* ── Admin: image upload (compressed client-side before sending) ──────────── */
 async function compressImageFile(file, { maxWidth = 1600, maxHeight = 1600, quality = 0.82, maxBytes = 900000 } = {}) {

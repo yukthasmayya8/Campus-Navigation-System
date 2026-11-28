@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import MapView from '../components/MapView.jsx';
+import { LocationPicker } from '../components/MapView.jsx';
 import GpsDiagnosticsPanel from '../components/GpsDiagnosticsPanel.jsx';
 import SearchBox from '../components/SearchBox.jsx';
 import LocationDetails from '../components/LocationDetails.jsx';
-import { getLocations, searchLocations, getRoutes, syncOfflineData, offlineStatus, api, me } from '../api.js';
+import { getLocations, searchLocations, getRoutes, getNearest, submitLocationSuggestion, syncOfflineData, offlineStatus, api, me } from '../api.js';
 import { PathTracker } from '../lib/tracker.js';
 import { formatDistance, splitAtTimeGaps, GAP_AFTER_MS } from '../lib/geo.js';
 import { buildGraph, routeFromPosition, pathGeometry, nearestNode, alternativeFromPosition } from '../lib/routeGraph.js';
 import { resolveBuilding, trackBuilding, navigationSource, formatBuildingStatus } from '../lib/buildingDetection.js';
-import { captureBestPosition, normalisePosition, secureContextAllowed, gpsConfidence } from '../lib/geolocation.js';
+import { captureBestPosition, normalisePosition, secureContextAllowed, gpsConfidence, formatFixCoordinates, validateCoordinateInput } from '../lib/geolocation.js';
+import { useLocationCapture } from '../hooks/useLocationCapture.js';
 import { useWakeLock } from '../hooks/useWakeLock.js';
 import { backgroundHint, wakeLockHint } from '../lib/platform.js';
 import RouteFacts from '../components/RouteFacts.jsx';
@@ -66,6 +68,12 @@ export default function PublicPage() {
   const [filterReason, setFilterReason] = useState(null);
   const [filteredGps, setFilteredGps] = useState(null);
   const [currentBuilding, setCurrentBuilding] = useState(null);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestForm, setSuggestForm] = useState({ name: '', category: 'Other', description: '' });
+  const [suggestCoords, setSuggestCoords] = useState(null);
+  const [suggestBusy, setSuggestBusy] = useState(false);
+  const [suggestNearby, setSuggestNearby] = useState([]);
+  const suggestGps = useLocationCapture();
   const [routeSourceLabel, setRouteSourceLabel] = useState('');
   const [navInfo, setNavInfo] = useState(null);
   const [gpsNote, setGpsNote] = useState('');
@@ -627,6 +635,10 @@ export default function PublicPage() {
               />
             </div>
 
+            <button type="button" className="secondary block" onClick={() => { setSuggestOpen(true); setSuggestNearby([]); }} style={{ fontSize: 13 }}>
+              ➕ Add a missing place
+            </button>
+
             {sameChoice && <div className="alert warn">Start and destination must be different.</div>}
 
             <button type="button" className="primary" disabled={!canFind} onClick={findRoutes}>
@@ -928,6 +940,107 @@ export default function PublicPage() {
         />
         <div className="sheet-scroll">{sheetBody()}</div>
       </section>
+
+      {suggestOpen && (
+        <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setSuggestOpen(false); }}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Add a missing place">
+            <div className="modal-head">
+              <div>
+                <h3>Add a missing place</h3>
+                <div className="muted">Capture your current location, then review before submitting for admin approval.</div>
+              </div>
+              <button type="button" className="icon ghost" onClick={() => setSuggestOpen(false)} aria-label="Close">✕</button>
+            </div>
+            <div className="modal-body stack">
+              <label>Place name *
+                <input value={suggestForm.name} maxLength={150} onChange={(e) => setSuggestForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g. New lab entrance" />
+              </label>
+              <label>Category
+                <select value={suggestForm.category} onChange={(e) => setSuggestForm((f) => ({ ...f, category: e.target.value }))}>
+                  <option>Academic</option>
+                  <option>Admin</option>
+                  <option>Library</option>
+                  <option>Food</option>
+                  <option>Sports</option>
+                  <option>Other</option>
+                </select>
+              </label>
+              <label>Description
+                <textarea value={suggestForm.description} maxLength={4000} rows={3} onChange={(e) => setSuggestForm((f) => ({ ...f, description: e.target.value }))} />
+              </label>
+
+              <div className="loc-card">
+                <div className="loc-card-body">
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button type="button" className="secondary" onClick={async () => {
+                      const result = await suggestGps.capture();
+                      if (!result) return;
+                      const coords = formatFixCoordinates(result.fix);
+                      setSuggestCoords({ lat: Number(coords.latitude), lng: Number(coords.longitude) });
+                      try {
+                        const nearby = await getNearest(Number(coords.latitude), Number(coords.longitude));
+                        setSuggestNearby((nearby || []).filter((n) => n.distanceMeters < 30));
+                      } catch { setSuggestNearby([]); }
+                    }} disabled={suggestGps.status === 'waiting' || suggestBusy}>
+                      {suggestGps.status === 'waiting' ? 'Waiting for GPS…' : '📍 Detect my current location'}
+                    </button>
+                    {suggestGps.status === 'waiting' && <button type="button" onClick={suggestGps.cancel}>Cancel</button>}
+                  </div>
+                  {suggestGps.message && <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>{suggestGps.message}</div>}
+                  {suggestGps.error && <div className="alert warn" style={{ marginTop: 8, fontSize: 12 }}>{suggestGps.error}</div>}
+                  {suggestGps.fix && (
+                    <div style={{ fontSize: 12, marginTop: 8 }}>
+                      <div className="mono">{formatFixCoordinates(suggestGps.fix).latitude}, {formatFixCoordinates(suggestGps.fix).longitude}</div>
+                      <div className="muted">±{Math.round(suggestGps.fix.accuracy)} m · {new Date(suggestGps.fix.timestamp).toLocaleString()}</div>
+                    </div>
+                  )}
+                  {suggestNearby.length > 0 && (
+                    <div className="alert warn" style={{ marginTop: 8, fontSize: 12 }}>
+                      A registered place is nearby: {suggestNearby.map((n) => n.name).join(', ')}. This may be a duplicate.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <LocationPicker
+                value={suggestCoords}
+                onChange={(v) => { setSuggestCoords(v); setSuggestNearby([]); }}
+                height={200}
+              />
+              <div className="muted" style={{ fontSize: 12 }}>Drag the marker to correct the position if GPS is inaccurate.</div>
+            </div>
+            <div className="modal-foot">
+              <button type="button" onClick={() => setSuggestOpen(false)} disabled={suggestBusy}>Cancel</button>
+              <button type="button" className="primary" disabled={suggestBusy || !suggestForm.name.trim() || !suggestCoords} onClick={async () => {
+                const coords = validateCoordinateInput(suggestCoords.lat, suggestCoords.lng);
+                if (!coords.ok) { alert(coords.message); return; }
+                setSuggestBusy(true);
+                try {
+                  await submitLocationSuggestion({
+                    name: suggestForm.name.trim(),
+                    description: suggestForm.description.trim(),
+                    category: suggestForm.category,
+                    latitude: coords.latitude,
+                    longitude: coords.longitude,
+                    accuracy: suggestGps.fix?.accuracy ?? null,
+                  });
+                  setSuggestOpen(false);
+                  setSuggestForm({ name: '', category: 'Other', description: '' });
+                  setSuggestCoords(null);
+                  setSuggestNearby([]);
+                  setNotice('Missing place submitted for admin review. It will not appear in navigation until approved.');
+                } catch (e) {
+                  alert(e?.message || 'Could not submit the place.');
+                } finally {
+                  setSuggestBusy(false);
+                }
+              }}>
+                {suggestBusy ? 'Submitting…' : 'Submit for review'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

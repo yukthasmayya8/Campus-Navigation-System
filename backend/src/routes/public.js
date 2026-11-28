@@ -1,9 +1,11 @@
 const router = require('express').Router();
 const asyncHandler = require('../utils/asyncHandler');
 const { badRequest } = require('../utils/errors');
-const { z, id } = require('../utils/schemas');
+const S = require('../utils/schemas');
+const { z, id } = S;
 const locations = require('../services/locations');
 const routes = require('../services/routes');
+const suggestions = require('../services/locationSuggestions');
 
 router.get('/locations', asyncHandler(async (req, res) => res.json({ items: await locations.listActive() })));
 
@@ -33,6 +35,10 @@ router.get('/routes', asyncHandler(async (req, res) => {
 router.get('/offline/snapshot', asyncHandler(async (req, res) => {
   const [locs, rts] = await Promise.all([locations.listActive(), routes.publishedForOffline()]);
   res.json({ generatedAt: new Date().toISOString(), locations: locs, routes: rts });
+}));
+
+router.post('/location-suggestions', asyncHandler(async (req, res) => {
+  res.status(201).json(await suggestions.create(S.locationSuggestionCreate.parse(req.body)));
 }));
 
 module.exports = router;
