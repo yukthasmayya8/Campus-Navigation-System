@@ -120,7 +120,7 @@ The implementation distinguishes four separate navigation states. This distincti
 | Building-to-building routes | `GET /api/routes?from=<id>&to=<id>` returns only active, published routes with exact endpoints. Bidirectional routes are reversed in the response. | The backend does not synthesize a path, and unconnected buildings can correctly return no alternatives. |
 | Route from current GPS position | The frontend downloads published route data, builds a connected graph, snaps the GPS fix to an edge within 60 m, and runs Dijkstra to a graph node within 60 m of the destination. | It only follows currently published route geometry. It does not create missing segments or connect to roads outside that graph. |
 | Live guidance on a selected route | Browser `watchPosition` feeds a filtered GPS fix into `PathTracker`, which projects onto the route and reports remaining distance, off-path state, and arrival. | It is follow-the-recorded-polyline guidance, not a turn-by-turn pedestrian routing engine. |
-| Off-path recovery | After three accepted fixes more than 30 m from the active polyline, the app offers an alternative graph path or reports that none is available. | A switch requires the user's confirmation and is never automatic. |
+| Off-path recovery | After three accepted fixes beyond the accuracy-adjusted threshold (at least 30 m) from the active polyline, the app offers an alternative graph path or reports that none is available. | A switch requires the user's confirmation and is never automatic. |
 | Building detection | Verified GeoJSON-style boundary polygons can produce an `inside` result; with the current seed data, detections are approximate reference-point suggestions. | The current database schema does not store building boundary polygons. Approximate detection must not be treated as confirmed entry or indoor position. |
 | Indoor and entrance guidance | There is no implementation for rooms, floors, doors, or entrances. | The building coordinate is a reference point, not a surveyed entrance or an indoor location. |
 
@@ -130,7 +130,7 @@ The graph currently used for GPS-origin and recovery planning is constructed fro
 
 `frontend/src/lib/buildingDetection.js` keeps the raw GPS fix, reported accuracy, a building's stored reference coordinate, the user-selected start, and the destination separate. A current building is only claimed as “inside” when an explicitly supplied, verified boundary polygon contains the fix and accuracy is at most 30 m. General building suggestions are disabled above 40 m accuracy and for fixes older than 15 seconds. Approximate suggestions require the fix to remain within 80 m of a stored reference point.
 
-The current database and seed data do not provide boundary polygons, so normal results are labelled **approximate** suggestions based on reference coordinates. Poor accuracy, stale fixes, equidistant/“between” cases, and outside-campus cases produce no building claim. Hysteresis requires three consistent fixes before an approximate suggestion switches buildings. A suggestion never writes the navigation source: the user must explicitly choose a start building or choose “Route from my current location”.
+The current database and seed data do not provide boundary polygons, so normal results are labelled **approximate** suggestions based on reference coordinates. Poor accuracy, stale fixes, equidistant/“between” cases, and outside-campus cases produce no building claim. A pair of nearby buildings remains ambiguous when the nearest candidate's lead over the next candidate is no greater than the larger of 12 m or the reported GPS accuracy. Hysteresis requires three consistent fixes before an approximate suggestion switches buildings. A suggestion never writes the navigation source: the user must explicitly choose a start building or choose “Route from my current location”.
 
 ### Live GPS navigation
 
@@ -142,15 +142,11 @@ Live navigation uses `navigator.geolocation.watchPosition` with high-accuracy mo
 - Movement from the previous accepted position
 - Accuracy-weighted smoothing
 
-Accepted fixes are projected onto the closest segment of the selected recorded polyline. Remaining distance is calculated by adding the rest of the selected segment and the complete distance of later usable segments. Marked GPS gaps are not filled by invented straight lines.
+Accepted fixes are map-matched against the selected recorded polyline. The tracker considers GPS accuracy, continuity with the previous matched segment, and distance to candidate segments rather than relying only on the geometrically nearest segment. Remaining distance is calculated by adding the rest of the matched segment and the complete distance of later usable segments. Marked GPS gaps are not filled by invented straight lines; the match also exposes a coarse confidence state.
 
-Off-path detection requires three consecutive accepted fixes more than 30 metres from the selected route. Arrival requires:
+The base off-path threshold is 30 metres, widened to 1.5 times reported accuracy when that is greater. Off-path detection requires three consecutive accepted fixes beyond this threshold. Arrival is checked on the final recorded segment and allows the 15-metre remaining-distance threshold to grow by up to 10 metres for GPS uncertainty; distance from the route must remain within twice the active match threshold.
 
-- The projected position to be on the final segment
-- Remaining distance no greater than 15 metres
-- Position no more than twice the off-path threshold from the route
-
-The UI reports an off-path warning and may offer published alternatives from the nearest registered building to the chosen destination. The user must choose an alternative to switch; the application does not automatically change the selected route or continuously recalculate it. GPS gaps are not treated as walkable distance during live progress tracking.
+The UI reports an off-path warning and may offer a different published graph path from the current GPS position to the chosen destination. The user must choose an alternative to switch; the application does not automatically change the selected route or continuously recalculate it. GPS gaps are not treated as walkable distance during live progress tracking.
 
 ### GPS route recording
 
@@ -185,7 +181,7 @@ All mutating routes require authentication and role checks. Route and location u
 
 ### Admin building capture
 
-When adding or editing a building, an administrator enters the name/details first and then taps **Capture My Current Location**. The shared capture helper waits for a fresh fix (never a cached position), rejects fixes worse than 30 m, and shows latitude, longitude, accuracy, timestamp and quality. Retry and cancel are available while waiting. The captured coordinates populate the form and the map preview, including an accuracy circle; manual entry/map dragging remains an explicit fallback. Coordinates are validated again before save, while authentication, optimistic version checks, and audit history are unchanged.
+When adding or editing a building, an administrator enters the name/details first and then taps **Capture My Current Location**. The shared capture helper waits for a fresh fix (never a cached position), rejects fixes worse than 30 m, prefers fixes at or below 20 m, and briefly samples around a preferred fix to report position spread. It shows latitude, longitude, accuracy, timestamp and quality. Retry and cancel are available while waiting. The captured coordinates populate the form and map preview, including an accuracy circle and capture-spread note; manual entry/map dragging remains an explicit fallback. Coordinates are validated again before save, while authentication, optimistic version checks, and audit history are unchanged.
 
 ### Offline support
 
@@ -214,10 +210,10 @@ The local projection is appropriate for a campus-sized area and avoids the repea
 For each accepted fix, `PathTracker`:
 
 1. Projects the fix onto every usable route segment.
-2. Calculates the perpendicular projection coefficient and clamps it to the segment.
-3. Converts the nearest projected point back to the relevant segment position.
-4. Selects the segment with the smallest perpendicular distance.
-5. Calculates the remaining distance by summing the remainder of the chosen segment and later segment lengths.
+2. Scores candidate segments using perpendicular distance and a small continuity preference for the previous match.
+3. Prefers candidates inside the accuracy-adjusted search corridor when one is available.
+4. Calculates the remaining distance from the selected projection, excluding all GPS-gap jumps.
+5. Reports a coarse match confidence alongside distance, off-path, and arrival state.
 
 The implementation therefore reports progress along the route rather than straight-line distance to the destination.
 
@@ -594,7 +590,7 @@ In production the frontend uses the same-origin `/api` proxy defined in `netlify
 - **Scope:** The implemented system is outdoor, building-to-building wayfinding over published walking polylines. It has no indoor floors, rooms, doors, or building-entrance routing.
 - **Route discovery:** Building-to-building alternatives require exact endpoints and active/published route records. The backend cannot generate or infer a route for endpoint pairs that have no eligible recording.
 - **GPS-origin routing:** A GPS position must be within 60 metres of a graph edge and the destination must be within 60 metres of a graph node. Missing, disconnected, or unrecorded campus paths are not invented.
-- **Off-path behavior:** Three sustained readings beyond 30 metres trigger a recovery offer. The app does not automatically switch routes; the user must confirm a suggested alternate.
+- **Off-path behavior:** Three sustained readings beyond the accuracy-adjusted threshold (30 metres minimum) trigger a recovery offer. The app does not automatically switch routes; the user must confirm a suggested alternate.
 - **GPS dependence:** Accuracy, arrival, and off-path decisions depend on browser permissions, device hardware, satellite conditions, surroundings, and operating-system behavior.
 - **Building detection:** Approximate suggestions are based on stored reference coordinates and are not a claim that the user is inside a building. Verified boundary detection requires boundary data that the current database does not contain.
 - **Seed quality:** Seeded building coordinates and routes are approximate. They require field verification and replacement with real recordings before use for real-world navigation.
@@ -625,7 +621,8 @@ This repository is private and is intended for the SMVITM campus navigation proj
 ## Recent capabilities (latest)
 
 - **Verified GPS and building separation:** the public app keeps raw and filtered GPS fixes separate from route projections and building sources; approximate suggestions never silently become a navigation start.
-- **Fresh-fix capture for public and admin use:** shared geolocation capture waits for a current, accurate fix, reports precision and timestamp, supports cancellation/retry, and falls back clearly for weak or denied GPS.
+- **Fresh, stability-aware GPS capture:** shared geolocation capture waits for a current, accurate fix, prefers fixes at or below 20 m (30 m maximum), samples briefly to report position spread, and supports cancellation/retry.
+- **Accuracy-aware building and route matching:** uncertain GPS makes close building candidates remain ambiguous; live route matching uses accuracy and segment continuity to reduce noisy snapping and provides match-confidence feedback.
 - **Graph-based GPS-origin planning** (`frontend/src/lib/routeGraph.js`): converts published routes into a connected graph, supports bidirectional edges, Dijkstra shortest paths, a K-shortest-path helper, and point-to-segment projection for intermediate starting positions. The current public UI uses the graph for routes from the user's current position; building-to-building alternatives still come from the published-route endpoint.
 - **Confirmation-only off-path recovery:** after three sustained off-path readings, the app compares a graph result from the current projected position with the active polyline and offers a different published path only when one exists. The destination remains unchanged and the user confirms the switch.
 - **Stop and retry controls:** live navigation can be stopped explicitly, and GPS capture/navigation can recover from weak fixes or retries without changing the selected route automatically.
