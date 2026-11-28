@@ -5,8 +5,11 @@ import {
 } from '../../api.js';
 import { LocationPicker } from '../MapView.jsx';
 import HistoryPanel from './HistoryPanel.jsx';
+import { useLocationCapture } from '../../hooks/useLocationCapture.js';
+import { formatFixCoordinates, validateCoordinateInput } from '../../lib/geolocation.js';
 
 const EMPTY = { name: '', description: '', latitude: '', longitude: '', imageUrl: '', confirmNearby: false };
+const NO_FIX_META = { source: '', accuracy: null, timestamp: null, quality: null };
 
 export default function LocationManager({ user, onChange }) {
   const [locations, setLocations] = useState([]);
@@ -20,6 +23,8 @@ export default function LocationManager({ user, onChange }) {
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [history, setHistory] = useState(null);
+  const [gpsMeta, setGpsMeta] = useState(NO_FIX_META);
+  const gps = useLocationCapture();
   const fileRef = useRef(null);
 
   async function load() {
@@ -30,20 +35,28 @@ export default function LocationManager({ user, onChange }) {
   }
   useEffect(() => { load(); }, []);
 
-  const setF = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
+  const setF = (k) => (e) => {
+    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    setForm((f) => ({ ...f, [k]: value }));
+    // A hand-edited coordinate is no longer the captured fix, so hide GPS accuracy metadata.
+    if (k === 'latitude' || k === 'longitude') setGpsMeta(NO_FIX_META);
+  };
+
+  function closeEditor() {
+    gps.reset();
+    setGpsMeta(NO_FIX_META);
+    setEditing(null);
+  }
 
   function startNew() {
+    gps.reset();
+    setGpsMeta(NO_FIX_META);
     setEditing('new'); setForm(EMPTY); setErr(''); setMsg('');
-    // Pre-fill coordinates from the admin's current GPS position when available.
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (p) => setForm((f) => (f.latitude === '' ? { ...f, latitude: p.coords.latitude.toFixed(7), longitude: p.coords.longitude.toFixed(7) } : f)),
-        () => { /* leave manual/map entry */ },
-        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
-      );
-    }
   }
+
   function startEdit(loc) {
+    gps.reset();
+    setGpsMeta(NO_FIX_META);
     setEditing(loc);
     setForm({
       name: loc.name, description: loc.description || '',
@@ -53,19 +66,14 @@ export default function LocationManager({ user, onChange }) {
     setErr(''); setMsg('');
   }
 
-  async function useMyLocation() {
+  async function captureLocation() {
     setErr('');
-    if (!('geolocation' in navigator)) { setErr('GPS is not supported in this browser.'); return; }
-    setBusy(true);
-    navigator.geolocation.getCurrentPosition(
-      (p) => {
-        setForm((f) => ({ ...f, latitude: p.coords.latitude.toFixed(7), longitude: p.coords.longitude.toFixed(7) }));
-        setBusy(false);
-        setMsg('Coordinates filled from your current GPS position.');
-      },
-      (e) => { setErr(e.code === 1 ? 'Location permission denied.' : 'Could not get your position.'); setBusy(false); },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
-    );
+    const result = await gps.capture();
+    if (!result) return;
+    const coords = formatFixCoordinates(result.fix);
+    setForm((f) => ({ ...f, latitude: coords.latitude, longitude: coords.longitude }));
+    setGpsMeta({ source: 'gps', accuracy: result.fix.accuracy, timestamp: result.fix.timestamp, quality: result.quality });
+    setMsg(result.warning || `GPS fix captured (±${Math.round(result.fix.accuracy)} m). Review the map pin before saving.`);
   }
 
   async function handleUpload(e) {
@@ -80,18 +88,25 @@ export default function LocationManager({ user, onChange }) {
   }
 
   async function save() {
-    setErr(''); setBusy(true); setMsg('');
+    setErr(''); setMsg('');
+    const name = form.name.trim();
+    if (!name) { setErr('Building name is required.'); return; }
+    const coords = validateCoordinateInput(form.latitude, form.longitude);
+    if (!coords.ok) { setErr(coords.message); return; }
+    setBusy(true);
     try {
       const payload = {
-        name: form.name.trim(),
+        name,
         description: form.description.trim(),
-        latitude: Number(form.latitude),
-        longitude: Number(form.longitude),
+        latitude: coords.latitude,
+        longitude: coords.longitude,
         imageUrl: form.imageUrl || null,
         confirmNearby: Boolean(form.confirmNearby),
       };
       if (editing === 'new') { await createLocation(payload); setMsg('Location created.'); }
       else { await updateLocation(editing.locationId, { ...payload, expectedVersion: editing.versionNumber }); setMsg('Location updated.'); }
+      gps.reset();
+      setGpsMeta(NO_FIX_META);
       setEditing(null);
       await load();
       onChange?.();
@@ -126,6 +141,10 @@ export default function LocationManager({ user, onChange }) {
 
   const pickerValue = form.latitude !== '' && form.longitude !== '' && Number.isFinite(Number(form.latitude)) && Number.isFinite(Number(form.longitude))
     ? { lat: Number(form.latitude), lng: Number(form.longitude) } : null;
+  const capturedCoords = gps.fix ? formatFixCoordinates(gps.fix) : null;
+  const fixLabel = gps.status === 'waiting' ? 'Waiting for GPS…'
+    : gps.status === 'captured' ? 'Recapture location'
+      : gps.status === 'error' ? 'Retry location capture' : '📍 Capture My Current Location';
 
   return (
     <section>
@@ -181,14 +200,14 @@ export default function LocationManager({ user, onChange }) {
       )}
 
       {editing !== null && (
-        <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setEditing(null); }}>
+        <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) closeEditor(); }}>
           <div className="modal" role="dialog" aria-modal="true" aria-label={editing === 'new' ? 'Add location' : `Edit ${editing.name}`}>
             <div className="modal-head">
               <div>
                 <h3>{editing === 'new' ? 'Add new location' : `Edit ${editing.name}`}</h3>
-                <div className="muted">Tap the map or drag the pin to correct the coordinates.</div>
+                <div className="muted">Stand outdoors at the building entrance, capture your GPS fix, then review the pin before saving.</div>
               </div>
-              <button type="button" className="icon ghost" onClick={() => setEditing(null)} aria-label="Close">✕</button>
+              <button type="button" className="icon ghost" onClick={closeEditor} aria-label="Close">✕</button>
             </div>
             <div className="modal-body stack">
               <label>Building name *
@@ -197,21 +216,48 @@ export default function LocationManager({ user, onChange }) {
               <label>Description
                 <textarea value={form.description} maxLength={4000} rows={3} onChange={setF('description')} placeholder="Brief description of this building or facility…" />
               </label>
+
+              <div className="loc-card">
+                <div className="loc-card-body">
+                  <div className="loc-card-name" style={{ fontSize: 13 }}>GPS capture</div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <button type="button" className="secondary" onClick={captureLocation} disabled={gps.status === 'waiting' || busy} style={{ width: 'auto' }}>
+                      {fixLabel}
+                    </button>
+                    {gps.status === 'waiting' && <button type="button" onClick={gps.cancel}>Cancel capture</button>}
+                  </div>
+                  {gps.status === 'waiting' && <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>Waiting for a fresh fix with accuracy of 30 m or better. Enable device location services and stay outdoors.</div>}
+                  {gps.message && <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>{gps.message}</div>}
+                  {gps.error && <div className="alert warn" style={{ marginTop: 8, fontSize: 12 }}>{gps.error}</div>}
+                  {capturedCoords && (
+                    <div style={{ marginTop: 8, fontSize: 12 }}>
+                      <div className="muted">Last captured fix{gpsMeta.source !== 'gps' ? ' (coordinates below were edited afterwards)' : ''}:</div>
+                      <div className="mono">{capturedCoords.latitude}, {capturedCoords.longitude}</div>
+                      <div className="muted">
+                        ±{Math.round(gps.fix.accuracy)} m · {new Date(gps.fix.timestamp).toLocaleString()} · {gps.quality === 'good' ? 'good fix' : 'acceptable fix'}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div className="row">
                 <label>Latitude *
-                  <input type="number" step="any" value={form.latitude} onChange={setF('latitude')} placeholder="13.2548" />
+                  <input type="number" step="any" value={form.latitude} onChange={setF('latitude')} placeholder="Captured or entered manually" />
                 </label>
                 <label>Longitude *
-                  <input type="number" step="any" value={form.longitude} onChange={setF('longitude')} placeholder="74.7852" />
+                  <input type="number" step="any" value={form.longitude} onChange={setF('longitude')} placeholder="Captured or entered manually" />
                 </label>
               </div>
-              <button type="button" onClick={useMyLocation} disabled={busy} style={{ width: 'auto' }}>
-                📍 Use my current location
-              </button>
+              <div className="muted" style={{ fontSize: 12 }}>Manual fallback: enter values or tap/drag the map pin. This is allowed when GPS is weak, but it is a manual choice rather than a device claim.</div>
               <LocationPicker
                 value={pickerValue}
-                onChange={(v) => setForm((f) => ({ ...f, latitude: v.lat.toFixed(7), longitude: v.lng.toFixed(7) }))}
+                onChange={(v) => {
+                  setForm((f) => ({ ...f, latitude: v.lat.toFixed(7), longitude: v.lng.toFixed(7) }));
+                  setGpsMeta(NO_FIX_META);
+                }}
                 others={locations.filter((l) => editing === 'new' || l.locationId !== editing.locationId)}
+                accuracyM={gpsMeta.source === 'gps' && gps.fix ? gps.fix.accuracy : null}
                 height={230}
               />
               <label>Building photo URL
@@ -229,7 +275,7 @@ export default function LocationManager({ user, onChange }) {
               </label>
             </div>
             <div className="modal-foot">
-              <button type="button" onClick={() => setEditing(null)} disabled={busy}>Cancel</button>
+              <button type="button" onClick={closeEditor} disabled={busy}>Cancel</button>
               <button type="button" className="primary" onClick={save} disabled={busy || !form.name.trim() || form.latitude === '' || form.longitude === ''}>
                 {busy ? 'Saving…' : editing === 'new' ? 'Add location' : 'Save changes'}
               </button>

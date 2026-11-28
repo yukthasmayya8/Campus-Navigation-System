@@ -54,6 +54,7 @@ export class PathTracker {
         segment: (this.offsets[segmentIndex] || 0) + Math.max(0, loc.segment || 0),
         segmentIndex,
         remaining: loc.remaining + (this.suffix[segmentIndex + 1] || 0),
+        projected: loc.point,
       };
       if (!best || candidate.distance < best.distance) best = candidate;
     });
@@ -66,7 +67,9 @@ export class PathTracker {
     }
     return {
       ok: true,
+      // `position` is the filtered device position; `projected` is its projection on the route.
       position: accepted.position,
+      projected: best.projected,
       accuracy: accepted.accuracy,
       distanceFromPath: Math.round(best.distance),
       remainingMeters: Math.round(best.remaining),

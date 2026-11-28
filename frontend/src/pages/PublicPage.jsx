@@ -3,10 +3,12 @@ import { Link } from 'react-router-dom';
 import MapView from '../components/MapView.jsx';
 import SearchBox from '../components/SearchBox.jsx';
 import LocationDetails from '../components/LocationDetails.jsx';
-import { getLocations, searchLocations, getRoutes, getNearest, syncOfflineData, offlineStatus, api } from '../api.js';
+import { getLocations, searchLocations, getRoutes, syncOfflineData, offlineStatus, api } from '../api.js';
 import { PathTracker } from '../lib/tracker.js';
-import { formatDistance, formatWalkTime, splitAtTimeGaps, GAP_AFTER_MS, pathLength } from '../lib/geo.js';
-import { buildGraph, routeFromPosition, pathGeometry, nearestNode } from '../lib/routeGraph.js';
+import { formatDistance, splitAtTimeGaps, GAP_AFTER_MS } from '../lib/geo.js';
+import { buildGraph, routeFromPosition, pathGeometry, nearestNode, alternativeFromPosition } from '../lib/routeGraph.js';
+import { resolveBuilding, trackBuilding, navigationSource, formatBuildingStatus } from '../lib/buildingDetection.js';
+import { captureBestPosition, normalisePosition, secureContextAllowed } from '../lib/geolocation.js';
 import { useWakeLock } from '../hooks/useWakeLock.js';
 import { backgroundHint, wakeLockHint } from '../lib/platform.js';
 import RouteFacts from '../components/RouteFacts.jsx';
@@ -29,7 +31,18 @@ const inferCategory = (loc) => {
 
 const itemFor = (l) => ({ id: l.locationId, label: l.name, sublabel: l.description?.slice(0, 64) || '', icon: '🏢', loc: l });
 
+const formatFixLine = (fix) => {
+  if (!fix || !Number.isFinite(fix.latitude) || !Number.isFinite(fix.longitude)) return '';
+  const accuracy = Number.isFinite(fix.accuracy) ? ` · ±${Math.round(fix.accuracy)} m` : '';
+  const time = Number.isFinite(fix.timestamp) ? ` · ${new Date(fix.timestamp).toLocaleTimeString()}` : '';
+  return `${Number(fix.latitude).toFixed(6)}, ${Number(fix.longitude).toFixed(6)}${accuracy}${time}`;
+};
+
 export default function PublicPage() {
+  // Public data and panel state.
+  const [locations, setLocations] = useState([]);
+  const [detailsId, setDetailsId] = useState(null);
+  const [sheet, setSheet] = useState('peek');
   const [allRoutes, setAllRoutes] = useState([]);
   const [graph, setGraph] = useState(null);
   const [loadError, setLoadError] = useState('');
@@ -43,7 +56,11 @@ export default function PublicPage() {
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState(null);
   const [navigating, setNavigating] = useState(false);
-  const [pos, setPos] = useState(null);
+  // Separate state: raw device GPS, filtered position used for route math, and building suggestion.
+  const [rawGps, setRawGps] = useState(null);
+  const [filteredGps, setFilteredGps] = useState(null);
+  const [currentBuilding, setCurrentBuilding] = useState(null);
+  const [routeSourceLabel, setRouteSourceLabel] = useState('');
   const [navInfo, setNavInfo] = useState(null);
   const [gpsNote, setGpsNote] = useState('');
   const [notice, setNotice] = useState(() => {
@@ -64,9 +81,18 @@ export default function PublicPage() {
   const watchId = useRef(null);
   const tracker = useRef(null);
   const reqSeq = useRef(0);
-  const posRef = useRef(null);
+  const posRef = useRef(null); // last raw device fix, used only for map recentering
+  const currentBuildingRef = useRef(null);
   const navigatingRef = useRef(false);
   const hiddenAtRef = useRef(null);
+  const locationsRef = useRef(locations);
+  const destSelRef = useRef(destSel);
+  const selectedRef = useRef(selected);
+  const graphRef = useRef(graph);
+  locationsRef.current = locations;
+  destSelRef.current = destSel;
+  selectedRef.current = selected;
+  graphRef.current = graph;
   const wake = useWakeLock(navigating);
 
   const refreshCache = () => offlineStatus().then(setCache).catch(() => {});
@@ -133,52 +159,99 @@ export default function PublicPage() {
     }
   }
 
-  async function startWatch() {
-    stopWatch();
-    watchId.current = navigator.geolocation.watchPosition(
-      (p) => {
-        if (!tracker.current) return;
-        const r = tracker.current.update({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy, timestamp: p.timestamp });
-        if (!r.ok) {
-          setGpsNote(r.reason === 'low_accuracy'
-            ? `GPS signal weak (±${Math.round(p.coords.accuracy || 0)} m). Waiting for a better fix…`
-            : r.reason === 'jump' ? 'Ignored an unreliable GPS jump. Keep walking.'
-              : 'Waiting for a valid GPS fix…');
-          return;
-        }
-        setGpsNote(''); setPos({ ...r.position, accuracy: r.accuracy });
-        posRef.current = r.position;
-        setNavInfo(r);
-        if (r.offPath && Date.now() - rerouteCooldown.current > 20000 && destSel?.id) {
-          rerouteCooldown.current = Date.now();
-          getNearest(r.position.latitude, r.position.longitude)
-            .then((nearest) => {
-              if (nearest?.length) {
-                const from = nearest[0];
-                if (String(from.locationId) !== String(startSel?.id)) {
-                  getRoutes(from.locationId, destSel.id)
-                    .then((data) => { if (data.items?.length) setReroute({ fromName: from.name, routes: data.items }); })
-                    .catch(() => {});
-                }
-              }
-            }).catch(() => {});
-        }
-      },
-      (err) => setGpsNote(err.code === 1
-        ? 'Location permission denied. Allow location access to navigate.'
-        : err.code === 2 ? 'Position unavailable (weak GPS). The route stays visible on the map.'
-          : 'Timed out getting your position. Retrying…'),
-      { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 },
-    );
+  const gpsReasonNote = (reason, accuracy) => ({
+    low_accuracy: `GPS signal weak (±${Math.round(accuracy || 0)} m). Waiting for a better fix…`,
+    jump: 'Ignored an unreliable GPS jump. The route and progress are unchanged.',
+    stale: 'The last GPS fix was old. Waiting for a fresh position; no route change was made.',
+    invalid: 'Ignoring invalid GPS coordinates.',
+    no_path: 'No walkable route geometry is available for this route.',
+  }[reason] || 'Waiting for a valid GPS fix…');
+
+  function observeBuilding(fix) {
+    const observation = resolveBuilding(fix, locationsRef.current);
+    const next = trackBuilding(currentBuildingRef.current, observation);
+    currentBuildingRef.current = next;
+    setCurrentBuilding(next);
+    return next;
   }
 
-  function startNav() {
-    if (!selected) return;
+  /** Off-route handling: only published graph geometry, and never an automatic route switch. */
+  function considerReroute(r) {
+    if (!r.offPath || !destSelRef.current?.id || Date.now() - rerouteCooldown.current < 30000) return;
+    rerouteCooldown.current = Date.now();
+    const activeGraph = graphRef.current;
+    if (!activeGraph) {
+      setReroute({ message: 'No published route graph is available on this device. Follow the recorded path or return to it.' });
+      return;
+    }
+    const destLoc = destSelRef.current.loc || locationsRef.current.find((l) => l.locationId === destSelRef.current.id);
+    if (!destLoc) return;
+    const destNode = nearestNode(activeGraph, destLoc.latitude, destLoc.longitude);
+    if (!destNode || destNode.distance > 60) {
+      setReroute({ message: 'No verified route ends near your destination. The active route is unchanged.' });
+      return;
+    }
+    const candidate = alternativeFromPosition(activeGraph, r.position, destNode.node.id, selectedRef.current?.points || [], { maxSnapM: 25 });
+    setReroute(candidate
+      ? { candidate, message: 'A verified path from your current position is available. Switch only if you want to.' }
+      : { message: 'No verified alternative route from your current position. Follow the recorded path or return to it.' });
+  }
+
+  function startWatch() {
+    if (!('geolocation' in navigator)) {
+      setGpsNote('This browser does not support GPS. You can still follow the route on the map.');
+      return;
+    }
+    if (!secureContextAllowed()) {
+      setGpsNote('GPS requires HTTPS. Open this site over https:// to use live navigation.');
+      return;
+    }
+    stopWatch();
+    try {
+      watchId.current = navigator.geolocation.watchPosition(
+        (p) => {
+          const fix = normalisePosition(p);
+          // Raw device position is displayed on the map; it is never replaced by a
+          // building reference coordinate or by a projected route point.
+          setRawGps(fix);
+          posRef.current = fix;
+          observeBuilding(fix);
+          if (!tracker.current) return;
+          const r = tracker.current.update(fix);
+          if (!r.ok) { setGpsNote(gpsReasonNote(r.reason, fix.accuracy)); return; }
+          setGpsNote('');
+          setFilteredGps({ ...r.position, accuracy: r.accuracy });
+          setNavInfo(r);
+          if (r.offPath) considerReroute(r);
+          else if (reroute) setReroute(null);
+        },
+        (err) => setGpsNote(err.code === 1
+          ? 'Location permission denied. Allow location access in your browser settings.'
+          : err.code === 2 ? 'Position unavailable. The recorded route remains visible; retry when GPS returns.'
+            : 'Timed out getting your position. Retrying…'),
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 },
+      );
+    } catch {
+      setGpsNote('Could not start GPS tracking. Check browser location permissions.');
+    }
+  }
+
+  function startNav(route = selectedRef.current) {
+    if (!route) return;
     setGpsNote('');
-    if (!('geolocation' in navigator)) { setGpsNote('This browser does not support GPS. You can still follow the route on the map.'); return; }
-    const segments = splitAtTimeGaps(selected.points || []);
-    tracker.current = new PathTracker(selected.points, { segments, offPathMeters: OFFPATH_M, offPathFixes: OFFPATH_FIXES, arrivalMeters: ARRIVAL_M });
+    if (!('geolocation' in navigator) || !secureContextAllowed()) {
+      setGpsNote('Live GPS needs a modern browser over HTTPS (or localhost). You can still follow the route on the map.');
+      return;
+    }
+    const segments = route.segments?.length ? route.segments : splitAtTimeGaps(route.points || []);
+    tracker.current = new PathTracker(route.points || [], {
+      segments, offPathMeters: OFFPATH_M, offPathFixes: OFFPATH_FIXES, arrivalMeters: ARRIVAL_M,
+    });
+    setSelected(route);
     setNavInfo(null);
+    setFilteredGps(null);
+    setReroute(null);
+    rerouteCooldown.current = 0;
     setNavigating(true);
     navigatingRef.current = true;
     setFollowMe(true);
@@ -192,95 +265,118 @@ export default function PublicPage() {
     wake.release();
     tracker.current = null;
     navigatingRef.current = false;
-    setNavigating(false); setPos(null); setNavInfo(null); setGpsNote(''); setReroute(null);
+    setNavigating(false);
+    // Raw GPS and current-building state are intentionally kept: they describe the device,
+    // not the active route. Only navigation-derived state is cleared here.
+    setFilteredGps(null); setNavInfo(null); setReroute(null); setGpsNote('');
   }
 
-  function retryGps() {
+  async function retryGps() {
     if (!tracker.current) return;
-    if (!('geolocation' in navigator)) { setGpsNote('This browser does not support GPS.'); return; }
-    navigator.geolocation.getCurrentPosition(
-      (p) => {
-        const r = tracker.current.update({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy, timestamp: p.timestamp });
-        if (r.ok) { setGpsNote(''); setPos({ ...r.position, accuracy: r.accuracy }); posRef.current = r.position; setNavInfo(r); }
-        else setGpsNote(r.reason === 'low_accuracy' ? 'GPS signal weak. Move outdoors and retry.' : 'Waiting for a valid GPS fix…');
-      },
-      (err) => setGpsNote(err.code === 1 ? 'Location permission denied. Allow it in browser settings.' : 'Could not get GPS. Move outdoors and retry.'),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
-    );
+    setLocatingMe(true);
+    try {
+      const { fix, warning } = await captureBestPosition();
+      setRawGps(fix);
+      posRef.current = fix;
+      observeBuilding(fix);
+      const r = tracker.current.update(fix);
+      if (r.ok) {
+        setGpsNote(warning || '');
+        setFilteredGps({ ...r.position, accuracy: r.accuracy });
+        setNavInfo(r);
+      } else setGpsNote(gpsReasonNote(r.reason, fix.accuracy));
+    } catch (e) { setGpsNote(e.message || 'Could not get your position. Move outdoors and retry.'); }
+    finally { setLocatingMe(false); }
   }
 
-  function routeFromMyLocation() {
-    if (!destSel || !graph) { setNotice('Select a destination first.'); return; }
+  async function routeFromMyLocation() {
+    if (!destSel) { setNotice('Select a destination first.'); return; }
+    if (!graph) { setNotice('Published route data is not available on this device yet. Connect once to download it.'); return; }
     setGpsNote('');
-    if (!('geolocation' in navigator)) { setGpsNote('GPS not supported.'); return; }
-    navigator.geolocation.getCurrentPosition(
-      (p) => {
-        const destLoc = destSel.loc || locations.find((l) => l.locationId === destSel.id);
-        if (!destLoc) { setNotice('Destination not found.'); return; }
-        const destNode = nearestNode(graph, destLoc.latitude, destLoc.longitude);
-        if (!destNode) { setNotice('No graph node near destination.'); return; }
-        const res = routeFromPosition(graph, p.coords.latitude, p.coords.longitude, destNode.node.id, 60);
-        if (!res) { setNotice('You are too far from any recorded path to connect. Move closer to a campus path and try again.'); return; }
-        const geom = pathGeometry(graph, res);
-        const pseudoRoute = {
-          routeId: `gps-${Date.now()}`,
-          routeName: `Route from your position to ${destLoc.name}`,
-          points: geom,
-          waypoints: [],
-          distanceMeters: Math.round(res.distance),
-          hasStairs: null, hasRamp: null, isCovered: null,
-          reversed: false,
-          segments: [geom],
-        };
-        resetPlanning();
-        setDestSel(destSel);
-        chooseRoute(pseudoRoute);
-        setNotice(`Route calculated from your GPS position (≈ ${formatDistance(res.distance)}). Follow the highlighted path.`);
-      },
-      (err) => setGpsNote(err.code === 1 ? 'Location permission denied.' : 'Could not get your position.'),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
-    );
+    setLocatingMe(true);
+    try {
+      const { fix, warning } = await captureBestPosition();
+      setRawGps(fix);
+      posRef.current = fix;
+      observeBuilding(fix);
+      const destLoc = destSel.loc || locations.find((l) => l.locationId === destSel.id);
+      if (!destLoc) { setNotice('Destination not found.'); return; }
+      const destNode = nearestNode(graph, destLoc.latitude, destLoc.longitude);
+      if (!destNode || destNode.distance > 60) {
+        setNotice('No published route ends near this destination. Your destination was not changed.');
+        return;
+      }
+      const res = routeFromPosition(graph, fix.latitude, fix.longitude, destNode.node.id, 60);
+      if (!res) {
+        setNotice('You are too far from any recorded path to connect. Move closer to a campus path and try again.');
+        return;
+      }
+      const geom = pathGeometry(res.graph, res);
+      const pseudoRoute = {
+        routeId: `gps-${Date.now()}`,
+        routeName: `Verified path from your position to ${destLoc.name}`,
+        points: geom,
+        segments: [geom],
+        waypoints: [],
+        distanceMeters: Math.round(res.distance),
+        hasStairs: null, hasRamp: null, isCovered: null,
+        reversed: false,
+        sourceLabel: 'My GPS position',
+      };
+      chooseRoute(pseudoRoute, 'My GPS position');
+      setNotice(warning || `Route calculated from your GPS position (≈ ${formatDistance(res.distance)}). Follow the highlighted path.`);
+
+    } catch (e) { setGpsNote(e.message || 'Could not get your position.'); }
+    finally { setLocatingMe(false); }
   }
 
   function resetPlanning() {
     reqSeq.current++;
     stopNav();
-    setRoutes(null); setSelected(null); setRouteMsg(''); setNotice(''); setBusy(false);
+    setRoutes(null); setSelected(null); setRouteSourceLabel(''); setRouteMsg(''); setNotice(''); setBusy(false);
   }
 
-  function useMyLocation() {
+  async function useMyLocation() {
     setGpsNote('');
-    if (!('geolocation' in navigator)) { setGpsNote('GPS is not supported in this browser. Pick a starting building instead.'); return; }
     setLocatingMe(true);
-    navigator.geolocation.getCurrentPosition(
-      async (p) => {
-        try {
-          const nearest = await getNearest(p.coords.latitude, p.coords.longitude);
-          if (nearest.length) {
-            const l = nearest[0];
-            resetPlanning();
-            setStartSel(itemFor(l));
-            setNotice(`Nearest building: ${l.name} (${formatDistance(l.distanceMeters)} away).`);
-            setSheet('half');
-          } else setGpsNote('No registered building found near you. Pick a starting building manually.');
-        } catch (e) { setGpsNote(e.message); }
-        setLocatingMe(false);
-      },
-      (err) => {
-        setGpsNote(err.code === 1
-          ? 'Location permission denied. Select your starting building manually.'
-          : err.code === 3 ? 'Location request timed out. Try again or pick a starting building.'
-            : 'Could not get your location. Pick a starting building manually.');
-        setLocatingMe(false);
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 },
-    );
+    try {
+      const { fix, warning } = await captureBestPosition();
+      setRawGps(fix);
+      posRef.current = fix;
+      observeBuilding(fix);
+      setSheet('half');
+      setGpsNote(warning || '');
+      setNotice('GPS fix captured. Review the building suggestion below; nothing was set as your start automatically.');
+      // A building suggestion is only a suggestion. `startSel` is never written here:
+      // the user must explicitly choose it as the navigation source.
+    } catch (e) { setGpsNote(e.message || 'Could not get your location. Pick a starting building manually.'); }
+    finally { setLocatingMe(false); }
+  }
+
+  function confirmReroute() {
+    const candidate = reroute?.candidate;
+    if (!candidate) return;
+    const pseudoRoute = {
+      routeId: `reroute-${Date.now()}`,
+      routeName: `Verified path from your position to ${destSelRef.current?.label || 'your destination'}`,
+      points: candidate.points,
+      segments: candidate.segments,
+      waypoints: [],
+      distanceMeters: Math.round(candidate.distance),
+      hasStairs: null, hasRamp: null, isCovered: null,
+      reversed: false,
+      sourceLabel: 'My GPS position',
+    };
+    setRouteSourceLabel('My GPS position');
+    startNav(pseudoRoute);
+    setNotice('Switched to a verified path from your current GPS position. Your destination was not changed.');
   }
 
   async function findRoutes() {
     if (!startSel || !destSel) return;
     const seq = ++reqSeq.current;
-    setRoutes(null); setSelected(null); setRouteMsg(''); setNotice(''); stopNav(); setBusy(true); setSheet('half');
+    setRoutes(null); setSelected(null); setRouteMsg(''); setNotice(''); stopNav();
+    setRouteSourceLabel(startSel.label); setBusy(true); setSheet('half');
     try {
       const data = await getRoutes(startSel.id, destSel.id);
       if (seq !== reqSeq.current) return;
@@ -293,9 +389,10 @@ export default function PublicPage() {
     }
   }
 
-  function chooseRoute(r) {
+  function chooseRoute(r, sourceLabel = '') {
     stopNav();
     setSelected(r);
+    setRouteSourceLabel(sourceLabel || r.sourceLabel || startSel?.label || '');
     setNotice('');
     setSheet('half');
   }
@@ -342,6 +439,15 @@ export default function PublicPage() {
   const categories = ['All', ...Array.from(new Set(locations.map(inferCategory))).sort()];
   const visible = locations.filter((l) => category === 'All' || inferCategory(l) === category);
   const detailsOpen = detailsId != null;
+  // These remain separate: the suggestion describes where the device is; only the
+  // user's explicit choice (`startSel`) is used as a building-to-building source.
+  const sourceInfo = navigationSource(startSel, currentBuilding);
+  const buildingStatus = formatBuildingStatus(currentBuilding);
+  const suggestedBuilding = sourceInfo.buildingSuggestion?.buildingId
+    ? locations.find((l) => String(l.locationId) === String(sourceInfo.buildingSuggestion.buildingId))
+    : null;
+  const suggestionIsApproximate = sourceInfo.buildingSuggestion?.status === 'approximate';
+  const navSourceLabel = routeSourceLabel || startSel?.label || '—';
 
   const sheetBody = () => {
     if (detailsOpen) {
@@ -420,6 +526,30 @@ export default function PublicPage() {
               <p className="muted" style={{ marginTop: 6, fontSize: 12 }}>
                 GPS inaccurate? Choose your starting building manually — it always works.
               </p>
+              {currentBuilding && (
+                <div className="loc-card" style={{ marginTop: 8 }}>
+                  <div className="loc-card-body">
+                    <div className="loc-card-name" style={{ fontSize: 13 }}>{buildingStatus.current}</div>
+                    {buildingStatus.reference && <div className="loc-card-desc">{buildingStatus.reference}</div>}
+                    <div className="loc-card-desc">{buildingStatus.detail}</div>
+                    {rawGps && <div className="loc-card-desc mono" style={{ fontSize: 11 }}>{formatFixLine(rawGps)}</div>}
+                    {suggestedBuilding && String(startSel?.id) !== String(suggestedBuilding.locationId) && (
+                      <button
+                        type="button"
+                        className="secondary"
+                        style={{ marginTop: 8, width: '100%', fontSize: 12 }}
+                        onClick={() => {
+                          resetPlanning();
+                          setStartSel(itemFor(suggestedBuilding));
+                          setNotice(`Start set to ${suggestedBuilding.name}${suggestionIsApproximate ? ' (approximate suggestion)' : ''}. Change it manually if this is wrong.`);
+                        }}
+                      >
+                        Use {suggestedBuilding.name} as start{suggestionIsApproximate ? ' (approximate)' : ''}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div>
@@ -440,9 +570,12 @@ export default function PublicPage() {
             </button>
 
             {destSel && (
-              <button type="button" onClick={routeFromMyLocation} style={{ width: 'auto' }}>
+              <button type="button" onClick={routeFromMyLocation} style={{ width: 'auto' }} disabled={locatingMe || !graph}>
                 📍 Route from my current location
               </button>
+            )}
+            {destSel && !graph && (
+              <p className="muted" style={{ fontSize: 12 }}>Route-from-GPS needs published route data. Connect once to download it.</p>
             )}
 
             {destLoc && !routes && (
@@ -530,6 +663,9 @@ export default function PublicPage() {
                 <div className="route-card selected">
                   <div className="route-card-name">{selected.routeName}</div>
                   <RouteFacts route={selected} detailed />
+                  <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                    Start: {navSourceLabel} · Total route: {formatDistance(selected.distanceMeters)}
+                  </div>
                   {selected.waypoints?.length > 0 && null}
                 </div>
                 {selectedHasGap && (
@@ -562,29 +698,44 @@ export default function PublicPage() {
                   <div className="nav-stats">
                     <div className="nav-stat">
                       <div className="nav-stat-value">{navInfo ? formatDistance(navInfo.remainingMeters) : '—'}</div>
-                      <div className="nav-stat-label">Remaining</div>
+                      <div className="nav-stat-label">Remaining on route</div>
                     </div>
                     <div className="nav-stat">
                       <div className="nav-stat-value">{navInfo ? formatDistance(navInfo.distanceFromPath) : '—'}</div>
                       <div className="nav-stat-label">From path</div>
                     </div>
                   </div>
-                  {pos && (
+                  <div className="nav-next" style={{ justifyContent: 'space-between' }}>
+                    <span><strong>Route total</strong></span>
+                    <span>{formatDistance(selected.distanceMeters)}</span>
+                  </div>
+                  <div className="nav-next" style={{ justifyContent: 'space-between' }}>
+                    <span><strong>Start</strong></span>
+                    <span>{navSourceLabel}</span>
+                  </div>
+                  {rawGps && (
                     <div className="nav-next" style={{ justifyContent: 'space-between' }}>
                       <span><strong>GPS accuracy</strong></span>
-                      <span><span className={`gps-dot ${pos.accuracy <= 30 ? 'good' : 'poor'}`} /> {Math.round(pos.accuracy)} m</span>
+                      <span><span className={`gps-dot ${Number.isFinite(rawGps.accuracy) && rawGps.accuracy <= 30 ? 'good' : 'poor'}`} /> {Number.isFinite(rawGps.accuracy) ? `${Math.round(rawGps.accuracy)} m` : 'unknown'}</span>
+                    </div>
+                  )}
+                  {rawGps && <div className="nav-next mono" style={{ fontSize: 11 }}>Device GPS: {formatFixLine(rawGps)}</div>}
+                  {filteredGps && <div className="nav-next mono" style={{ fontSize: 11 }}>Route fix: {formatFixLine(filteredGps)}</div>}
+                  {navInfo?.projected && (
+                    <div className="nav-next mono" style={{ fontSize: 11 }}>
+                      Projected on route: {Number(navInfo.projected.latitude).toFixed(6)}, {Number(navInfo.projected.longitude).toFixed(6)}
                     </div>
                   )}
                   {nextWaypoint && <div className="nav-next"><span>➡</span><span>Next: <strong>{nextWaypoint}</strong></span></div>}
-                   {upcomingWaypoints.length > 1 && (
-                     <div className="nav-next" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
-                       <span><strong>Upcoming stops</strong></span>
-                       <span style={{ fontSize: 12 }}>{upcomingWaypoints.map((w) => w.name).join(' → ')}</span>
-                     </div>
-                   )}
+                  {upcomingWaypoints.length > 1 && (
+                    <div className="nav-next" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+                      <span><strong>Upcoming stops</strong></span>
+                      <span style={{ fontSize: 12 }}>{upcomingWaypoints.map((w) => w.name).join(' → ')}</span>
+                    </div>
+                  )}
                   {navInfo?.offPath && (
                     <div className="alert warn" style={{ marginBottom: 9 }}>
-                      You appear to be off the recorded path. Follow the highlighted line; automatic rerouting is not available.
+                      You appear off the recorded path. Your route is unchanged; review any verified suggestion below before switching.
                     </div>
                   )}
                   {selectedHasGap && (
@@ -593,31 +744,36 @@ export default function PublicPage() {
                     </div>
                   )}
                   {gpsNote && <div className="alert warn" style={{ marginBottom: 9 }}>{gpsNote}</div>}
-                   {reroute && (
-                     <div className="alert info" style={{ marginBottom: 9 }}>
-                       You appear off the planned path. Routes from <strong>{reroute.fromName}</strong> to your destination are available — tap one to switch:
-                       <div className="sort-row" style={{ marginTop: 8 }}>
-                         {reroute.routes.map((rt) => (
-                           <button key={rt.routeId} type="button" onClick={() => { chooseRoute(rt); setReroute(null); }}>
-                             {rt.routeName} (≈ {formatDistance(rt.distanceMeters || 0)})
-                           </button>
-                         ))}
-                       </div>
-                       <button type="button" className="link" style={{ marginTop: 6 }} onClick={() => setReroute(null)}>Dismiss</button>
-                     </div>
-                   )}
-                  {!pos && !gpsNote && <div className="alert info">Waiting for your first GPS fix…</div>}
-                   <button type="button" onClick={retryGps} style={{ width: 'auto', fontSize: 12, marginTop: 6 }}>Retry GPS</button>
+                  {reroute && (
+                    <div className="alert info" style={{ marginBottom: 9 }}>
+                      <div>{reroute.message}</div>
+                      {reroute.candidate && (
+                        <button
+                          type="button"
+                          className="secondary"
+                          style={{ marginTop: 8, width: '100%', fontSize: 12 }}
+                          onClick={confirmReroute}
+                        >
+                          Switch to verified path (≈ {formatDistance(reroute.candidate.distance)})
+                        </button>
+                      )}
+                      <button type="button" className="link" style={{ marginTop: 6 }} onClick={() => setReroute(null)}>Keep current route</button>
+                    </div>
+                  )}
+                  {!rawGps && !gpsNote && <div className="alert info">Waiting for your first GPS fix…</div>}
+                  <button type="button" onClick={retryGps} disabled={locatingMe} style={{ width: 'auto', fontSize: 12, marginTop: 6 }}>
+                    {locatingMe ? 'Retrying…' : 'Retry GPS'}
+                  </button>
                   <div className="nav-actions">
                     <button type="button" onClick={stopNav}>Stop</button>
                     <button type="button" className={followMe ? 'secondary' : ''} onClick={() => setFollowMe((f) => !f)}>
                       {followMe ? 'Following' : 'Follow me'}
                     </button>
-                    <button type="button" onClick={() => { if (posRef.current) { setFollowMe(true); setNotice('Map recentered on your position.'); } }}>Recenter</button>
+                    <button type="button" onClick={() => { if (posRef.current) { setFollowMe(true); setNotice('Map recentered on your GPS position.'); } }}>Recenter</button>
                   </div>
                 </div>
                 <p className="muted" style={{ fontSize: 12 }}>
-                  {backgroundHint()} {wakeLockHint()} No automatic rerouting or route switching is performed.
+                  {backgroundHint()} {wakeLockHint()} Routes are never switched automatically; a verified alternative requires your confirmation.
                 </p>
               </>
             )}
@@ -644,11 +800,11 @@ export default function PublicPage() {
         <MapView
           locations={locations}
           route={selected}
-          userPosition={pos}
+          userPosition={rawGps}
+          projectedPosition={navigating && navInfo?.projected ? navInfo.projected : null}
           startId={startSel?.id || null}
           destinationId={destSel?.id || null}
           followMe={followMe && navigating}
-          snapUser={navigating && Boolean(selected)}
           onSelectLocation={(l) => { setDetailsId(l.locationId); setLanded(true); setSheet('half'); }}
         />
       </div>

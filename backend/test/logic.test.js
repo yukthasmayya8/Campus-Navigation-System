@@ -6,6 +6,7 @@ const { sniffImage } = require('../src/utils/image');
 const { createApp } = require('../src/app');
 const config = require('../src/config');
 const { sendMail } = require('../src/services/mailer');
+const { locationCreate, locationUpdate, routeCreate } = require('../src/utils/schemas');
 
 const route = (o) => ({ routeId: 1, sourceLocationId: 1, destinationLocationId: 2, hasStairs: null, hasRamp: null, isCovered: null,
   points: [{ sequenceNumber: 1, latitude: 1, longitude: 1 }, { sequenceNumber: 2, latitude: 2, longitude: 2 }, { sequenceNumber: 3, latitude: 3, longitude: 3 }],
@@ -37,6 +38,26 @@ test('sniffImage checks content, not extension', () => {
   assert.strictEqual(sniffImage(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0])).ext, 'jpg');
   assert.strictEqual(sniffImage(Buffer.from('<?php echo 1; ?> not an image')), null);
   assert.strictEqual(sniffImage(Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WEBP')])).ext, 'webp');
+});
+
+test('location and route schemas reject invalid coordinates before any database write', () => {
+  const valid = { name: 'Library', description: '', latitude: 13, longitude: 74 };
+  assert.strictEqual(locationCreate.safeParse(valid).success, true);
+  assert.strictEqual(locationCreate.safeParse({ ...valid, latitude: 91 }).success, false);
+  assert.strictEqual(locationCreate.safeParse({ ...valid, longitude: -181 }).success, false);
+  assert.strictEqual(locationCreate.safeParse({ ...valid, latitude: NaN }).success, false);
+  assert.strictEqual(locationCreate.safeParse({ ...valid, latitude: Infinity }).success, false);
+  assert.strictEqual(locationCreate.safeParse({ ...valid, latitude: '13' }).success, false);
+  assert.strictEqual(locationUpdate.safeParse({ expectedVersion: 1, latitude: NaN }).success, false);
+
+  const validRoute = {
+    sourceLocationId: 1, destinationLocationId: 2, routeName: 'Path', directionality: 'bidirectional',
+    points: [{ latitude: 13, longitude: 74 }, { latitude: 13.001, longitude: 74 }],
+  };
+  assert.strictEqual(routeCreate.safeParse(validRoute).success, true);
+  assert.strictEqual(routeCreate.safeParse({
+    ...validRoute, points: [{ latitude: 13, longitude: 74 }, { latitude: NaN, longitude: 74 }],
+  }).success, false);
 });
 
 test('CORS allows the deployed Netlify frontend with credentials', async (t) => {

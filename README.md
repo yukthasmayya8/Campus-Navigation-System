@@ -109,6 +109,10 @@ The data-quality measures in place are:
 
 There is currently no floor/room model, indoor positioning, turn-by-turn voice guidance, or guaranteed routing to a particular building entrance. Coverage is limited to the buildings and connected paths represented in the published campus data.
 
+### Current building detection
+
+`frontend/src/lib/buildingDetection.js` keeps the raw GPS fix, reported accuracy, a building's stored reference coordinate, the user-selected start, and the destination separate. A current building is only claimed as “inside” when an explicitly supplied, verified boundary polygon contains the fix and accuracy is at most 30 m. The current database has no boundary polygons, so normal results are labelled **approximate** suggestions based on reference coordinates; poor accuracy, stale fixes, equidistant/“between” cases, and outside-campus cases produce no building claim. Hysteresis requires three consistent fixes before an approximate suggestion switches buildings. A suggestion never writes the navigation source: the user must explicitly choose a start building or choose “Route from my current location”.
+
 ### Live GPS navigation
 
 Live navigation uses `navigator.geolocation.watchPosition` with high-accuracy mode. The frontend filter checks:
@@ -159,6 +163,10 @@ The admin console supports:
 - Audit-log review
 
 All mutating routes require authentication and role checks. Route and location updates use optimistic version locking.
+
+### Admin building capture
+
+When adding or editing a building, an administrator enters the name/details first and then taps **Capture My Current Location**. The shared capture helper waits for a fresh fix (never a cached position), rejects fixes worse than 30 m, and shows latitude, longitude, accuracy, timestamp and quality. Retry and cancel are available while waiting. The captured coordinates populate the form and the map preview, including an accuracy circle; manual entry/map dragging remains an explicit fallback. Coordinates are validated again before save, while authentication, optimistic version checks, and audit history are unchanged.
 
 ### Offline support
 
@@ -548,7 +556,7 @@ Build Command: npm run build
 Publish Directory: dist
 ```
 
-`VITE_API_URL` is set to the Render API origin in [`frontend/.env.production`](frontend/.env.production).
+In production the frontend uses the same-origin `/api` proxy defined in `netlify.toml`; no `VITE_API_URL` or `frontend/.env.production` is required.
 
 ## Security
 
@@ -567,6 +575,7 @@ Publish Directory: dist
 - Navigation is limited to outdoor buildings and the published path network; there is no indoor/floor/room navigation or building-entrance-level positioning.
 - Building-to-building alternatives are exact-endpoint published routes. GPS-origin planning can connect to the graph only when the position is within 60 metres of a recorded edge; it cannot invent a missing campus path.
 - Off-path alternatives may be suggested from a nearby registered building, but the user must select one; automatic rerouting and automatic route switching are not performed.
+- Navigation and reroute candidates follow published recorded polylines; no unrecorded road or campus path is invented and no route switch happens without confirmation.
 - GPS accuracy depends on the device, surroundings, and operating-system permissions.
 - Seeded building coordinates and route geometry are approximate and must be field-verified before real-world use.
 - GPS gaps are left unjoined because the application does not infer missing movement.
@@ -598,7 +607,7 @@ This repository is private and is intended for the SMVITM campus navigation proj
 - **Graph-based GPS-origin planning** (`frontend/src/lib/routeGraph.js`): converts published routes into a connected graph, supports bidirectional edges, Dijkstra shortest paths, a K-shortest-path helper, and point-to-segment projection for intermediate starting positions. The current public UI uses the graph for routes from the user's current position; building-to-building alternatives still come from the published-route endpoint.
 - **Off-path alternatives:** after sustained off-path readings, the app can suggest published routes from the nearest building to the destination. The user chooses whether to switch; no automatic reroute or route switch occurs.
 - **Satellite map:** Map/Satellite toggle using free Esri World Imagery (no API key, proper attribution).
-- **GPS auto-fill for buildings:** admins can tap "Use my current location" or the map picker instead of typing coordinates.
+- **GPS-first building capture:** admins wait for an acceptable fresh fix, review coordinates/accuracy/timestamp, retry if needed, and may fall back to explicit manual/map entry.
 - **Landmark marking during recording:** admins can create new landmarks at their current GPS position while recording a route.
 - **Route editing:** admins can edit route metadata (name, directionality, stairs/ramp/covered, notes) after recording.
 - **PWA/offline:** service worker caches shell + assets + viewed tiles; IndexedDB caches locations/routes; offline banner and fallback.

@@ -1,6 +1,7 @@
 /** Pure geo helpers for navigation and recording (no DOM, unit-tested). Distances in metres. */
 const R = 6371008.8;
 const rad = (d) => (d * Math.PI) / 180;
+const deg = (r) => (r * 180) / Math.PI;
 
 export const MAX_ACCURACY_M = 25;
 export const MIN_SPACING_M = 3;
@@ -38,21 +39,28 @@ export function segmentsLength(segments = []) {
  * from the projected position to the end of the path.
  */
 export function locateOnPath(pos, points) {
-  if (!points.length) return { distance: Infinity, segment: -1, remaining: 0 };
-  if (points.length === 1) return { distance: haversine(pos, points[0]), segment: 0, remaining: 0 };
+  if (!points.length) return { distance: Infinity, segment: -1, remaining: 0, point: null };
+  if (points.length === 1) return { distance: haversine(pos, points[0]), segment: 0, remaining: 0, point: points[0] };
   const P = project(pos, pos);
-  let best = { distance: Infinity, segment: 0, t: 0 };
+  let best = { distance: Infinity, segment: 0, t: 0, x: 0, y: 0 };
   for (let i = 0; i < points.length - 1; i++) {
     const a = project(points[i], pos), b = project(points[i + 1], pos);
     const dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy;
     const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((P.x - a.x) * dx + (P.y - a.y) * dy) / len2));
-    const d = Math.hypot(a.x + t * dx - P.x, a.y + t * dy - P.y);
-    if (d < best.distance) best = { distance: d, segment: i, t };
+    const x = a.x + t * dx, y = a.y + t * dy;
+    const d = Math.hypot(x - P.x, y - P.y);
+    if (d < best.distance) best = { distance: d, segment: i, t, x, y };
   }
   const segLen = haversine(points[best.segment], points[best.segment + 1]);
   let remaining = segLen * (1 - best.t);
   for (let i = best.segment + 1; i < points.length - 1; i++) remaining += haversine(points[i], points[i + 1]);
-  return { distance: best.distance, segment: best.segment, remaining };
+  // Convert the local projection back to coordinates: a display-only route projection,
+  // never a replacement for the device's GPS position.
+  const point = {
+    latitude: pos.latitude + deg(best.y / R),
+    longitude: pos.longitude + deg(best.x / (R * Math.cos(rad(pos.latitude)))),
+  };
+  return { distance: best.distance, segment: best.segment, remaining, point };
 }
 
 /**
@@ -62,15 +70,23 @@ export function locateOnPath(pos, points) {
  *  - smooths by accuracy-weighted averaging with the previous estimate
  */
 export class GpsFilter {
-  constructor({ maxAccuracy = 30, maxSpeed = 12 } = {}) { this.maxAccuracy = maxAccuracy; this.maxSpeed = maxSpeed; this.last = null; }
+  constructor({ maxAccuracy = 30, maxSpeed = 12, maxAgeMs = 20000, now = () => Date.now() } = {}) {
+    this.maxAccuracy = maxAccuracy;
+    this.maxSpeed = maxSpeed;
+    this.maxAgeMs = maxAgeMs;
+    this.now = now;
+    this.last = null;
+  }
   reset() { this.last = null; }
   accept(fix) {
     const { latitude, longitude } = fix;
     const accuracy = Number.isFinite(fix.accuracy) ? fix.accuracy : this.maxAccuracy;
-    const time = fix.timestamp ?? Date.now();
+    const time = Number.isFinite(fix.timestamp) ? fix.timestamp : this.now();
     if (![latitude, longitude].every(Number.isFinite)) return { ok: false, reason: 'invalid' };
     if (accuracy > this.maxAccuracy) return { ok: false, reason: 'low_accuracy' };
+    if (Math.abs(this.now() - time) > this.maxAgeMs) return { ok: false, reason: 'stale' };
     if (this.last) {
+      if (time < this.last.time) return { ok: false, reason: 'stale' };
       const dt = Math.max((time - this.last.time) / 1000, 0.001);
       if (haversine(this.last, { latitude, longitude }) / dt > this.maxSpeed) return { ok: false, reason: 'jump' };
       const wOld = 1 / (this.last.accuracy ** 2), wNew = 1 / (accuracy ** 2);
