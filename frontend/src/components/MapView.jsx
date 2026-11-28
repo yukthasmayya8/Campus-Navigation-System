@@ -12,6 +12,8 @@ export const TILE_ATTRIBUTIONS = {
   satellite: 'Tiles © Esri — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
 };
 export const DEFAULT_CENTER = [13.3225, 74.7843]; // SMVITM, Bantakal
+// Approximate georeferenced bounds for the supplied campus drone image.
+export const DRONE_BOUNDS = [[13.25375, 74.78348], [13.25595, 74.78702]];
 
 const dot = (color, r = 7) => ({ radius: r, color: '#fff', weight: 2.5, fillColor: color, fillOpacity: 1 });
 
@@ -38,6 +40,7 @@ export default function MapView({
   const el = useRef(null);
   const map = useRef(null);
   const baseLayer = useRef(null);
+  const droneOverlay = useRef(null);
   const layers = useRef({ places: null, route: null });
   const userMarker = useRef(null);
   const accuracyCircle = useRef(null);
@@ -63,6 +66,7 @@ export default function MapView({
     setReady(true);
     return () => {
       m.remove();
+      if (droneOverlay.current) { try { droneOverlay.current.remove(); } catch { /* ignore */ } droneOverlay.current = null; }
       map.current = null; baseLayer.current = null;
       layers.current = { places: null, route: null };
       userMarker.current = null; accuracyCircle.current = null; projectedMarker.current = null;
@@ -71,10 +75,16 @@ export default function MapView({
 
   // Swap basemap when type changes
   useEffect(() => {
-    if (!ready || !map.current || !baseLayer.current) return;
-    map.current.removeLayer(baseLayer.current);
-    baseLayer.current = L.tileLayer(TILE_URLS[mapType], { maxZoom: 20, attribution: TILE_ATTRIBUTIONS[mapType] }).addTo(map.current);
-    baseLayer.current.bringToBack();
+    if (!ready || !map.current) return;
+    if (droneOverlay.current) { map.current.removeLayer(droneOverlay.current); droneOverlay.current = null; }
+    if (baseLayer.current) { map.current.removeLayer(baseLayer.current); baseLayer.current = null; }
+    if (mapType === 'drone') {
+      droneOverlay.current = L.imageOverlay('/campus-drone.jpg', DRONE_BOUNDS, { opacity: 0.92, interactive: false }).addTo(map.current);
+      droneOverlay.current.bringToBack();
+    } else {
+      baseLayer.current = L.tileLayer(TILE_URLS[mapType], { maxZoom: 20, attribution: TILE_ATTRIBUTIONS[mapType] }).addTo(map.current);
+      baseLayer.current.bringToBack();
+    }
   }, [mapType, ready]);
 
   const handleMapTypeChange = (t) => {
@@ -188,6 +198,7 @@ export default function MapView({
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 500, display: 'flex', gap: 4, background: 'rgba(255,255,255,0.9)', borderRadius: 8, padding: 3, boxShadow: '0 2px 6px rgba(0,0,0,0.15)' }}>
         <button type="button" onClick={() => handleMapTypeChange('standard')} style={{ padding: '4px 10px', fontSize: 12, minHeight: 28, border: 'none', borderRadius: 6, background: mapType === 'standard' ? '#1a73e8' : 'transparent', color: mapType === 'standard' ? '#fff' : '#333', cursor: 'pointer' }}>Map</button>
         <button type="button" onClick={() => handleMapTypeChange('satellite')} style={{ padding: '4px 10px', fontSize: 12, minHeight: 28, border: 'none', borderRadius: 6, background: mapType === 'satellite' ? '#1a73e8' : 'transparent', color: mapType === 'satellite' ? '#fff' : '#333', cursor: 'pointer' }}>Satellite</button>
+        <button type="button" onClick={() => handleMapTypeChange('drone')} style={{ padding: '4px 10px', fontSize: 12, minHeight: 28, border: 'none', borderRadius: 6, background: mapType === 'drone' ? '#1a73e8' : 'transparent', color: mapType === 'drone' ? '#fff' : '#333', cursor: 'pointer' }}>Drone</button>
       </div>
     </div>
   );
