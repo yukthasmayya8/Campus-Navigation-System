@@ -5,13 +5,15 @@
  * location" actions. It never returns coordinates without the reported accuracy and
  * timestamp, and it never treats enableHighAccuracy as a guarantee of good accuracy.
  */
+import { GPS_THRESHOLDS } from './gpsThresholds.js';
+
 export const CAPTURE_LIMITS = Object.freeze({
   /** Preferred accuracy; capture completes as soon as a fix this good arrives. */
-  targetAccuracyM: 20,
+  targetAccuracyM: GPS_THRESHOLDS.captureTargetM,
   /** Fixes worse than this are never silently accepted. */
-  maxAccuracyM: 30,
+  maxAccuracyM: GPS_THRESHOLDS.captureMaxM,
   /** A fix older than this is not accepted. */
-  maxAgeMs: 15000,
+  maxAgeMs: GPS_THRESHOLDS.captureStaleMs,
   /** Total time spent waiting for an acceptable fix. */
   maxWaitMs: 20000,
   /** Per-request timeout passed to the Geolocation API. */

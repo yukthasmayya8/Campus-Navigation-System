@@ -1,4 +1,5 @@
 /** Pure geo helpers for navigation and recording (no DOM, unit-tested). Distances in metres. */
+import { GPS_THRESHOLDS } from './gpsThresholds.js';
 const R = 6371008.8;
 const rad = (d) => (d * Math.PI) / 180;
 const deg = (r) => (r * 180) / Math.PI;
@@ -70,7 +71,7 @@ export function locateOnPath(pos, points) {
  *  - smooths by accuracy-weighted averaging with the previous estimate
  */
 export class GpsFilter {
-  constructor({ maxAccuracy = 30, maxSpeed = 12, maxAgeMs = 20000, now = () => Date.now() } = {}) {
+  constructor({ maxAccuracy = GPS_THRESHOLDS.navigationMaxM, maxSpeed = 12, maxAgeMs = GPS_THRESHOLDS.navigationStaleMs, now = () => Date.now() } = {}) {
     this.maxAccuracy = maxAccuracy;
     this.maxSpeed = maxSpeed;
     this.maxAgeMs = maxAgeMs;
@@ -88,8 +89,15 @@ export class GpsFilter {
     if (this.last) {
       if (time < this.last.time) return { ok: false, reason: 'stale' };
       const dt = Math.max((time - this.last.time) / 1000, 0.001);
-      if (haversine(this.last, { latitude, longitude }) / dt > this.maxSpeed) return { ok: false, reason: 'jump' };
-      const wOld = 1 / (this.last.accuracy ** 2), wNew = 1 / (accuracy ** 2);
+      const movement = haversine(this.last, { latitude, longitude });
+      if (movement / dt > this.maxSpeed) return { ok: false, reason: 'jump' };
+      // Adaptive weighting: stationary drift is suppressed, while walking fixes are
+      // allowed to influence the estimate more strongly to reduce turn latency.
+      const speedMps = movement / dt;
+      const stationary = speedMps < 0.4;
+      const wOld = 1 / (this.last.accuracy ** 2);
+      const wNewBase = 1 / (accuracy ** 2);
+      const wNew = stationary ? wNewBase * 0.25 : speedMps > 1.5 ? wNewBase * 2 : wNewBase;
       const k = wNew / (wOld + wNew);
       const sm = { latitude: this.last.latitude + k * (latitude - this.last.latitude), longitude: this.last.longitude + k * (longitude - this.last.longitude) };
       this.last = { ...sm, accuracy: Math.min(accuracy, this.last.accuracy + 1), time };

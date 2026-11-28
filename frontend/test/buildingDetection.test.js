@@ -37,7 +37,7 @@ test('equidistant reference points mean between buildings, not inside one', () =
     { locationId: 1, name: 'Admin Block', ...atMetres(-10) },
     { locationId: 2, name: 'Library', ...atMetres(10) },
   ];
-  const r = resolveBuilding(fix(0), pair);
+  const r = resolveBuilding(fix(0, 15), pair);
   assert.strictEqual(r.status, 'between');
   assert.strictEqual(r.buildingId, null);
   assert.match(r.explanation, /Between/);

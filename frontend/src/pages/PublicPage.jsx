@@ -84,6 +84,7 @@ export default function PublicPage() {
   const reqSeq = useRef(0);
   const posRef = useRef(null); // last raw device fix, used only for map recentering
   const currentBuildingRef = useRef(null);
+  const gpsGoodStreakRef = useRef(0);
   const navigatingRef = useRef(false);
   const hiddenAtRef = useRef(null);
   const locationsRef = useRef(locations);
@@ -160,6 +161,24 @@ export default function PublicPage() {
     }
   }
 
+  const classifyGpsState = (building, confidence, previousState) => {
+    const base = building?.status === 'between' ? 'ambiguous'
+      : building?.status === 'outside' ? 'outside'
+        : confidence === 'stale' ? 'stale'
+          : confidence === 'low' ? 'low'
+            : confidence === 'moderate' ? 'moderate' : 'high';
+    const good = confidence === 'high' || confidence === 'moderate';
+    if (good && (previousState === 'low' || previousState === 'stale' || previousState === 'unavailable' || previousState === 'recovering')) {
+      if (gpsGoodStreakRef.current < 3) {
+        gpsGoodStreakRef.current += 1;
+        return 'recovering';
+      }
+    }
+    if (good) gpsGoodStreakRef.current = Math.min(3, gpsGoodStreakRef.current + 1);
+    else gpsGoodStreakRef.current = 0;
+    return base;
+  };
+
   const gpsReasonNote = (reason, accuracy) => ({
     low_accuracy: `GPS signal weak (±${Math.round(accuracy || 0)} m). Waiting for a better fix…`,
     jump: 'Ignored an unreliable GPS jump. The route and progress are unchanged.',
@@ -233,6 +252,7 @@ export default function PublicPage() {
           else if (reroute) setReroute(null);
         },
         (err) => {
+          gpsGoodStreakRef.current = 0;
           setGpsState(err.code === 1 ? 'unavailable' : 'low');
           setGpsNote(err.code === 1
             ? 'Location permission denied. Allow location access in your browser settings.'
@@ -290,11 +310,7 @@ export default function PublicPage() {
       posRef.current = fix;
       const building = observeBuilding(fix);
       const confidence = gpsConfidence(fix);
-      setGpsState(building?.status === 'between' ? 'ambiguous'
-        : building?.status === 'outside' ? 'outside'
-          : confidence === 'stale' ? 'stale'
-            : confidence === 'low' ? 'low'
-              : confidence === 'moderate' ? 'moderate' : 'high');
+      setGpsState(classifyGpsState(building, confidence, gpsState));
       const r = tracker.current.update(fix);
       if (r.ok) {
         setGpsNote(warning || '');
@@ -316,11 +332,7 @@ export default function PublicPage() {
       posRef.current = fix;
       const building = observeBuilding(fix);
       const confidence = gpsConfidence(fix);
-      setGpsState(building?.status === 'between' ? 'ambiguous'
-        : building?.status === 'outside' ? 'outside'
-          : confidence === 'stale' ? 'stale'
-            : confidence === 'low' ? 'low'
-              : confidence === 'moderate' ? 'moderate' : 'high');
+      setGpsState(classifyGpsState(building, confidence, gpsState));
       const destLoc = destSel.loc || locations.find((l) => l.locationId === destSel.id);
       if (!destLoc) { setNotice('Destination not found.'); return; }
       const destNode = nearestNode(graph, destLoc.latitude, destLoc.longitude);
@@ -367,11 +379,7 @@ export default function PublicPage() {
       posRef.current = fix;
       const building = observeBuilding(fix);
       const confidence = gpsConfidence(fix);
-      setGpsState(building?.status === 'between' ? 'ambiguous'
-        : building?.status === 'outside' ? 'outside'
-          : confidence === 'stale' ? 'stale'
-            : confidence === 'low' ? 'low'
-              : confidence === 'moderate' ? 'moderate' : 'high');
+      setGpsState(classifyGpsState(building, confidence, gpsState));
       setSheet('half');
       setGpsNote(warning || '');
       setNotice('GPS fix captured. Review the building suggestion below; nothing was set as your start automatically.');

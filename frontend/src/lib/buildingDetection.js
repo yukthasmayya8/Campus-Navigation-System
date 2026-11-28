@@ -13,22 +13,23 @@
  * inside a building just because a reference coordinate is nearest.
  */
 import { haversine } from './geo.js';
+import { GPS_THRESHOLDS } from './gpsThresholds.js';
 
 export const DETECTION_LIMITS = Object.freeze({
   /** Above this reported accuracy no building claim is made. */
-  maxAccuracyM: 40,
+  maxAccuracyM: GPS_THRESHOLDS.suggestionMaxAccuracyM,
   /** Beyond this distance from a reference coordinate, no approximate suggestion is made. */
-  maxSuggestionDistanceM: 80,
+  maxSuggestionDistanceM: GPS_THRESHOLDS.suggestionMaxDistanceM,
   /** Accuracy needed before a verified boundary can be claimed. */
-  boundaryAccuracyM: 30,
+  boundaryAccuracyM: GPS_THRESHOLDS.boundaryAccuracyM,
   /** A fix older than this is not used for building detection. */
-  staleMs: 15000,
+  staleMs: GPS_THRESHOLDS.buildingStaleMs,
   /** Keep the previous building unless a new one is at least this much closer. */
-  hysteresisM: 15,
+  hysteresisM: GPS_THRESHOLDS.hysteresisM,
   /** A competing building must win this many consecutive fixes before switching. */
-  switchFixes: 3,
+  switchFixes: GPS_THRESHOLDS.switchFixes,
   /** First/second reference distances closer than this mean "between buildings". */
-  ambiguousGapM: 12,
+  ambiguousGapM: GPS_THRESHOLDS.ambiguousGapM,
 });
 
 const hasCoordinate = (p) => p && Number.isFinite(p.latitude) && Number.isFinite(p.longitude)
@@ -40,9 +41,9 @@ function asPoint(value, geojson = false) {
   }
   if (Array.isArray(value) && value.length >= 2 && value.every(Number.isFinite)) {
     // GeoJSON uses [longitude, latitude]; our own explicit boundary format uses [latitude, longitude].
-    return geojson
-      ? { latitude: value[1], longitude: value[0] }
-      : { latitude: value[0], longitude: value[1] };
+    if (geojson) return { latitude: value[1], longitude: value[0] };
+    if (Math.abs(value[0]) > 90) return null; // Reject ambiguous/misordered plain arrays instead of misinterpreting them.
+    return { latitude: value[0], longitude: value[1] };
   }
   return null;
 }
@@ -158,7 +159,7 @@ export function resolveBuilding(position, buildings = [], options = {}) {
   // A candidate is only distinguishable when its lead exceeds both the configured
   // gap and the GPS uncertainty. Adjacent buildings inside one accuracy radius
   // must remain ambiguous rather than being forced into a false "current building".
-  const distinguishableGap = Math.max(cfg.ambiguousGapM, accuracy);
+  const distinguishableGap = Math.max(cfg.ambiguousGapM, accuracy * GPS_THRESHOLDS.accuracySafetyFactor);
   if (second && second.distance - nearest.distance <= distinguishableGap) {
     return {
       ...common, status: 'between', buildingId: null, buildingName: null,

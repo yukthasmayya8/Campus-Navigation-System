@@ -148,6 +148,18 @@ The base off-path threshold is 30 metres, widened to 1.5 times reported accuracy
 
 The UI reports an off-path warning and may offer a different published graph path from the current GPS position to the chosen destination. The user must choose an alternative to switch; the application does not automatically change the selected route or continuously recalculate it. GPS gaps are not treated as walkable distance during live progress tracking.
 
+### GPS reliability, confidence and map matching
+
+The frontend uses a shared threshold policy in `frontend/src/lib/gpsThresholds.js`. Browser-reported accuracy is treated as an estimate, not a guaranteed error bound. Safety-related thresholds therefore use a conservative multiplier:
+
+- building distinguishability: `max(12 m, accuracy × 2)`
+- off-route corridor: `max(30 m, accuracy × 2)`
+- arrival distance: `15 m + min(accuracy, 5 m)`
+
+The GPS state machine reports `initializing`, `high`, `moderate`, `low`, `stale`, `unavailable`, `ambiguous`, `outside`, and `recovering`. A recovered GPS stream must produce several consecutive good fixes before returning to `high`.
+
+Map matching considers distance to each segment, continuity with the previous matched segment, progress along the segment, GPS accuracy, and a dynamic corridor. Segment switches require a clear distance advantage, preventing small GPS fluctuations from moving the projection to an adjacent path.
+
 ### GPS route recording
 
 Administrators record real walking paths with `navigator.geolocation.watchPosition`. The recorder:

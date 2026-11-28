@@ -1,4 +1,5 @@
 import { GpsFilter, locateOnPath, pathLength } from './geo.js';
+import { GPS_THRESHOLDS } from './gpsThresholds.js';
 
 const asSegments = (points = [], segments = []) => {
   const usable = Array.isArray(segments) ? segments.filter((s) => Array.isArray(s) && s.length) : [];
@@ -17,7 +18,7 @@ const asSegments = (points = [], segments = []) => {
  * never triggers it.
  */
 export class PathTracker {
-  constructor(points, { segments, offPathMeters = 30, offPathFixes = 3, arrivalMeters = 15, maxCandidateDistanceM = 100 } = {}) {
+  constructor(points, { segments, offPathMeters = GPS_THRESHOLDS.offPathBaseM, offPathFixes = 3, arrivalMeters = GPS_THRESHOLDS.arrivalBaseM, maxCandidateDistanceM = GPS_THRESHOLDS.matchCandidateDistanceM } = {}) {
     this.points = points || [];
     this.segments = asSegments(this.points, segments);
     this.opts = { offPathMeters, offPathFixes, arrivalMeters, maxCandidateDistanceM };
@@ -48,25 +49,16 @@ export class PathTracker {
     const accuracy = accepted.accuracy;
     // GPS accuracy widens the acceptable corridor around a route. A noisy fix must not
     // be treated as off-route merely because it falls outside the base threshold.
-    const matchThreshold = Math.max(this.opts.offPathMeters, accuracy * 1.5);
+    // Accuracy is an estimate, so the safety factor is deliberately conservative.
+    const matchThreshold = Math.max(this.opts.offPathMeters, accuracy * GPS_THRESHOLDS.accuracySafetyFactor);
     const candidates = [];
     this.segments.forEach((segment, segmentIndex) => {
       if (!segment.length) return;
       const loc = locateOnPath(accepted.position, segment);
       if (!Number.isFinite(loc.distance)) return;
-      // Map matching is not nearest-segment snapping alone. Continuity with the previous
-      // matched segment is rewarded, but a genuinely closer segment can still win.
-      let score = loc.distance;
-      if (this.lastMatch && this.lastMatch.segmentIndex === segmentIndex) score -= Math.min(8, this.opts.offPathMeters / 4);
-      // Direction/continuity: if the user has actually progressed along this segment,
-      // prefer it over an adjacent segment with an almost identical distance.
-      if (this.lastMatch && this.lastMatch.segmentIndex === segmentIndex && this.lastMatch.t !== null) {
-        const progress = loc.segment - this.lastMatch.segmentPoint;
-        if (Math.abs(progress) > 0) score -= Math.min(4, Math.abs(progress));
-      }
       candidates.push({
         distance: loc.distance,
-        score,
+        score: loc.distance,
         segment: (this.offsets[segmentIndex] || 0) + Math.max(0, loc.segment || 0),
         segmentIndex,
         segmentPoint: loc.segment || 0,
@@ -79,7 +71,19 @@ export class PathTracker {
 
     const valid = candidates.filter((c) => c.distance <= Math.max(this.opts.maxCandidateDistanceM, matchThreshold * 2));
     const pool = valid.length ? valid : candidates;
-    const best = pool.slice().sort((a, b) => a.score - b.score || a.distance - b.distance)[0];
+    const nearest = pool.slice().sort((a, b) => a.distance - b.distance)[0];
+
+    // Segment hysteresis: a tiny distance advantage on an adjacent segment is not enough
+    // to abandon the current map-matched segment. The user must be clearly closer or the
+    // current segment must no longer be a plausible candidate.
+    let best = nearest;
+    if (this.lastMatch) {
+      const current = pool.find((c) => c.segmentIndex === this.lastMatch.segmentIndex);
+      if (current && current.distance <= nearest.distance + GPS_THRESHOLDS.segmentSwitchMarginM
+          && current.distance <= matchThreshold) {
+        best = current;
+      }
+    }
 
     this.lastMatch = {
       segmentIndex: best.segmentIndex,
@@ -91,7 +95,8 @@ export class PathTracker {
 
     this.strikes = best.distance > matchThreshold ? this.strikes + 1 : 0;
     const onLastSegment = best.segmentIndex === this.segments.length - 1;
-    if (onLastSegment && best.remaining <= this.opts.arrivalMeters + Math.min(accuracy, 10) && best.distance <= matchThreshold * 2) {
+    if (onLastSegment && best.remaining <= this.opts.arrivalMeters + GPS_THRESHOLDS.arrivalAccuracyAllowanceM
+        && best.distance <= this.opts.arrivalMeters + GPS_THRESHOLDS.arrivalAccuracyAllowanceM) {
       this.arrived = true;
     }
     const matchConfidence = best.distance <= accuracy ? 'high'
