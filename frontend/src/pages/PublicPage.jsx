@@ -8,7 +8,7 @@ import { PathTracker } from '../lib/tracker.js';
 import { formatDistance, splitAtTimeGaps, GAP_AFTER_MS } from '../lib/geo.js';
 import { buildGraph, routeFromPosition, pathGeometry, nearestNode, alternativeFromPosition } from '../lib/routeGraph.js';
 import { resolveBuilding, trackBuilding, navigationSource, formatBuildingStatus } from '../lib/buildingDetection.js';
-import { captureBestPosition, normalisePosition, secureContextAllowed } from '../lib/geolocation.js';
+import { captureBestPosition, normalisePosition, secureContextAllowed, gpsConfidence } from '../lib/geolocation.js';
 import { useWakeLock } from '../hooks/useWakeLock.js';
 import { backgroundHint, wakeLockHint } from '../lib/platform.js';
 import RouteFacts from '../components/RouteFacts.jsx';
@@ -58,6 +58,7 @@ export default function PublicPage() {
   const [navigating, setNavigating] = useState(false);
   // Separate state: raw device GPS, filtered position used for route math, and building suggestion.
   const [rawGps, setRawGps] = useState(null);
+  const [gpsState, setGpsState] = useState('initializing');
   const [filteredGps, setFilteredGps] = useState(null);
   const [currentBuilding, setCurrentBuilding] = useState(null);
   const [routeSourceLabel, setRouteSourceLabel] = useState('');
@@ -215,7 +216,13 @@ export default function PublicPage() {
           // building reference coordinate or by a projected route point.
           setRawGps(fix);
           posRef.current = fix;
-          observeBuilding(fix);
+          const building = observeBuilding(fix);
+          const confidence = gpsConfidence(fix);
+          setGpsState(building?.status === 'between' ? 'ambiguous'
+            : building?.status === 'outside' ? 'outside'
+              : confidence === 'stale' ? 'stale'
+                : confidence === 'low' ? 'low'
+                  : confidence === 'moderate' ? 'moderate' : 'high');
           if (!tracker.current) return;
           const r = tracker.current.update(fix);
           if (!r.ok) { setGpsNote(gpsReasonNote(r.reason, fix.accuracy)); return; }
@@ -225,10 +232,13 @@ export default function PublicPage() {
           if (r.offPath) considerReroute(r);
           else if (reroute) setReroute(null);
         },
-        (err) => setGpsNote(err.code === 1
-          ? 'Location permission denied. Allow location access in your browser settings.'
-          : err.code === 2 ? 'Position unavailable. The recorded route remains visible; retry when GPS returns.'
-            : 'Timed out getting your position. Retrying…'),
+        (err) => {
+          setGpsState(err.code === 1 ? 'unavailable' : 'low');
+          setGpsNote(err.code === 1
+            ? 'Location permission denied. Allow location access in your browser settings.'
+            : err.code === 2 ? 'Position unavailable. The recorded route remains visible; retry when GPS returns.'
+              : 'Timed out getting your position. Retrying…');
+        },
         { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 },
       );
     } catch {
@@ -278,7 +288,13 @@ export default function PublicPage() {
       const { fix, warning } = await captureBestPosition();
       setRawGps(fix);
       posRef.current = fix;
-      observeBuilding(fix);
+      const building = observeBuilding(fix);
+      const confidence = gpsConfidence(fix);
+      setGpsState(building?.status === 'between' ? 'ambiguous'
+        : building?.status === 'outside' ? 'outside'
+          : confidence === 'stale' ? 'stale'
+            : confidence === 'low' ? 'low'
+              : confidence === 'moderate' ? 'moderate' : 'high');
       const r = tracker.current.update(fix);
       if (r.ok) {
         setGpsNote(warning || '');
@@ -298,7 +314,13 @@ export default function PublicPage() {
       const { fix, warning } = await captureBestPosition();
       setRawGps(fix);
       posRef.current = fix;
-      observeBuilding(fix);
+      const building = observeBuilding(fix);
+      const confidence = gpsConfidence(fix);
+      setGpsState(building?.status === 'between' ? 'ambiguous'
+        : building?.status === 'outside' ? 'outside'
+          : confidence === 'stale' ? 'stale'
+            : confidence === 'low' ? 'low'
+              : confidence === 'moderate' ? 'moderate' : 'high');
       const destLoc = destSel.loc || locations.find((l) => l.locationId === destSel.id);
       if (!destLoc) { setNotice('Destination not found.'); return; }
       const destNode = nearestNode(graph, destLoc.latitude, destLoc.longitude);
@@ -343,7 +365,13 @@ export default function PublicPage() {
       const { fix, warning } = await captureBestPosition();
       setRawGps(fix);
       posRef.current = fix;
-      observeBuilding(fix);
+      const building = observeBuilding(fix);
+      const confidence = gpsConfidence(fix);
+      setGpsState(building?.status === 'between' ? 'ambiguous'
+        : building?.status === 'outside' ? 'outside'
+          : confidence === 'stale' ? 'stale'
+            : confidence === 'low' ? 'low'
+              : confidence === 'moderate' ? 'moderate' : 'high');
       setSheet('half');
       setGpsNote(warning || '');
       setNotice('GPS fix captured. Review the building suggestion below; nothing was set as your start automatically.');
@@ -720,6 +748,7 @@ export default function PublicPage() {
                     </div>
                   )}
                   {rawGps && <div className="nav-next mono" style={{ fontSize: 11 }}>Device GPS: {formatFixLine(rawGps)}</div>}
+                  <div className="nav-next mono" style={{ fontSize: 11 }}>GPS state: {gpsState}</div>
                   {filteredGps && <div className="nav-next mono" style={{ fontSize: 11 }}>Route fix: {formatFixLine(filteredGps)}</div>}
                   {navInfo?.projected && (
                     <div className="nav-next mono" style={{ fontSize: 11 }}>

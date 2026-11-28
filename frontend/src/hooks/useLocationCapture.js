@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { captureBestPosition, geolocationErrorMessage } from '../lib/geolocation.js';
 
-const IDLE = { status: 'idle', fix: null, quality: null, message: '', error: '', attempts: 0 };
+const IDLE = { status: 'idle', fix: null, quality: null, spreadMeters: null, message: '', error: '', attempts: 0 };
 
 /**
  * React wrapper around the shared `captureBestPosition` implementation.
@@ -22,7 +22,7 @@ export function useLocationCapture(options = {}) {
     try {
       const result = await captureBestPosition({ ...optionsRef.current, signal: controller.signal });
       setState((s) => ({
-        ...s, status: 'captured', fix: result.fix, quality: result.quality,
+        ...s, status: 'captured', fix: result.fix, quality: result.quality, spreadMeters: result.spreadMeters ?? null,
         message: result.warning || `GPS fix captured (±${Math.round(result.fix.accuracy)} m). Review it before saving.`,
         error: '',
       }));
@@ -30,7 +30,7 @@ export function useLocationCapture(options = {}) {
     } catch (err) {
       if (err?.code === 'cancelled') return null;
       const message = geolocationErrorMessage(err);
-      setState((s) => ({ ...s, status: 'error', error: message, message: '', fix: null, quality: null }));
+      setState((s) => ({ ...s, status: 'error', error: message, message: '', fix: null, quality: null, spreadMeters: null }));
       return null;
     } finally {
       if (controllerRef.current === controller) controllerRef.current = null;

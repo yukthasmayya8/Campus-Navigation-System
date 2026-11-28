@@ -155,11 +155,15 @@ export function resolveBuilding(position, buildings = [], options = {}) {
     candidates, observedAt, streak: 1, pendingId: null, pendingStreak: 0,
   };
 
-  if (second && second.distance - nearest.distance <= cfg.ambiguousGapM) {
+  // A candidate is only distinguishable when its lead exceeds both the configured
+  // gap and the GPS uncertainty. Adjacent buildings inside one accuracy radius
+  // must remain ambiguous rather than being forced into a false "current building".
+  const distinguishableGap = Math.max(cfg.ambiguousGapM, accuracy);
+  if (second && second.distance - nearest.distance <= distinguishableGap) {
     return {
       ...common, status: 'between', buildingId: null, buildingName: null,
       confidence: 'low', source: 'reference_coordinate',
-      explanation: `Between ${nearest.name} and ${second.name} by reference coordinates; not confirmed inside either.`,
+      explanation: `Between ${nearest.name} and ${second.name} by reference coordinates (lead ${Math.round(second.distance - nearest.distance)} m, GPS ±${Math.round(accuracy)} m); not confirmed inside either.`,
     };
   }
 

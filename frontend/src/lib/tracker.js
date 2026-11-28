@@ -17,12 +17,13 @@ const asSegments = (points = [], segments = []) => {
  * never triggers it.
  */
 export class PathTracker {
-  constructor(points, { segments, offPathMeters = 30, offPathFixes = 3, arrivalMeters = 15 } = {}) {
+  constructor(points, { segments, offPathMeters = 30, offPathFixes = 3, arrivalMeters = 15, maxCandidateDistanceM = 100 } = {}) {
     this.points = points || [];
     this.segments = asSegments(this.points, segments);
-    this.opts = { offPathMeters, offPathFixes, arrivalMeters };
+    this.opts = { offPathMeters, offPathFixes, arrivalMeters, maxCandidateDistanceM };
     this.strikes = 0;
     this.arrived = false;
+    this.lastMatch = null; // previous map-matched segment/projection, used for continuity.
 
     // Global point index of each segment's first point (keeps waypoint ordering meaningful).
     this.offsets = [];
@@ -44,27 +45,58 @@ export class PathTracker {
     const accepted = this.filter.accept(fix);
     if (!accepted.ok) return { ok: false, reason: accepted.reason };
 
-    let best = null;
+    const accuracy = accepted.accuracy;
+    // GPS accuracy widens the acceptable corridor around a route. A noisy fix must not
+    // be treated as off-route merely because it falls outside the base threshold.
+    const matchThreshold = Math.max(this.opts.offPathMeters, accuracy * 1.5);
+    const candidates = [];
     this.segments.forEach((segment, segmentIndex) => {
       if (!segment.length) return;
       const loc = locateOnPath(accepted.position, segment);
-      const candidate = {
+      if (!Number.isFinite(loc.distance)) return;
+      // Map matching is not nearest-segment snapping alone. Continuity with the previous
+      // matched segment is rewarded, but a genuinely closer segment can still win.
+      let score = loc.distance;
+      if (this.lastMatch && this.lastMatch.segmentIndex === segmentIndex) score -= Math.min(8, this.opts.offPathMeters / 4);
+      // Direction/continuity: if the user has actually progressed along this segment,
+      // prefer it over an adjacent segment with an almost identical distance.
+      if (this.lastMatch && this.lastMatch.segmentIndex === segmentIndex && this.lastMatch.t !== null) {
+        const progress = loc.segment - this.lastMatch.segmentPoint;
+        if (Math.abs(progress) > 0) score -= Math.min(4, Math.abs(progress));
+      }
+      candidates.push({
         distance: loc.distance,
-        // Global point index, so "next waypoint" comparisons still use one coordinate space.
+        score,
         segment: (this.offsets[segmentIndex] || 0) + Math.max(0, loc.segment || 0),
         segmentIndex,
+        segmentPoint: loc.segment || 0,
         remaining: loc.remaining + (this.suffix[segmentIndex + 1] || 0),
         projected: loc.point,
-      };
-      if (!best || candidate.distance < best.distance) best = candidate;
+        t: loc.segment || 0,
+      });
     });
-    if (!best) return { ok: false, reason: 'no_path' };
+    if (!candidates.length) return { ok: false, reason: 'no_path' };
 
-    this.strikes = best.distance > this.opts.offPathMeters ? this.strikes + 1 : 0;
+    const valid = candidates.filter((c) => c.distance <= Math.max(this.opts.maxCandidateDistanceM, matchThreshold * 2));
+    const pool = valid.length ? valid : candidates;
+    const best = pool.slice().sort((a, b) => a.score - b.score || a.distance - b.distance)[0];
+
+    this.lastMatch = {
+      segmentIndex: best.segmentIndex,
+      segmentPoint: best.segmentPoint,
+      projected: best.projected,
+      timestamp: Number.isFinite(fix.timestamp) ? fix.timestamp : Date.now(),
+      distance: best.distance,
+    };
+
+    this.strikes = best.distance > matchThreshold ? this.strikes + 1 : 0;
     const onLastSegment = best.segmentIndex === this.segments.length - 1;
-    if (onLastSegment && best.remaining <= this.opts.arrivalMeters && best.distance <= this.opts.offPathMeters * 2) {
+    if (onLastSegment && best.remaining <= this.opts.arrivalMeters + Math.min(accuracy, 10) && best.distance <= matchThreshold * 2) {
       this.arrived = true;
     }
+    const matchConfidence = best.distance <= accuracy ? 'high'
+      : best.distance <= Math.max(this.opts.offPathMeters, accuracy * 2) ? 'moderate' : 'low';
+
     return {
       ok: true,
       // `position` is the filtered device position; `projected` is its projection on the route.
@@ -78,6 +110,7 @@ export class PathTracker {
       segment: best.segment,
       segmentIndex: best.segmentIndex,
       segmentCount: this.segments.length,
+      matchConfidence,
     };
   }
 }

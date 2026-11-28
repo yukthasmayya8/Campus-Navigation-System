@@ -236,6 +236,9 @@ export default function LocationManager({ user, onChange }) {
                       <div className="muted">
                         ±{Math.round(gps.fix.accuracy)} m · {new Date(gps.fix.timestamp).toLocaleString()} · {gps.quality === 'good' ? 'good fix' : 'acceptable fix'}
                       </div>
+                      {Number.isFinite(gps.spreadMeters) && gps.spreadMeters > 0 && (
+                        <div className="muted">Position spread during capture: ±{Math.round(gps.spreadMeters)} m</div>
+                      )}
                     </div>
                   )}
                 </div>

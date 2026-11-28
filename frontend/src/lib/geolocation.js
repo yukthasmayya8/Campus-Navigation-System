@@ -16,7 +16,17 @@ export const CAPTURE_LIMITS = Object.freeze({
   maxWaitMs: 20000,
   /** Per-request timeout passed to the Geolocation API. */
   timeoutMs: 15000,
+  /** Extra collection window after a good fix so capture stability can be assessed. */
+  stabilityWindowMs: 1000,
 });
+
+const EARTH_R = 6371008.8;
+const rad = (d) => (d * Math.PI) / 180;
+function haversineMeters(a, b) {
+  const dLat = rad(b.latitude - a.latitude), dLng = rad(b.longitude - a.longitude);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.latitude)) * Math.cos(rad(b.latitude)) * Math.sin(dLng / 2) ** 2;
+  return 2 * EARTH_R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
 
 export class GpsCaptureError extends Error {
   constructor(code, message, details = {}) {
@@ -133,16 +143,19 @@ export function captureBestPosition(options = {}, geolocation = globalThis.navig
     let settled = false;
     let watchId = null;
     let timer = null;
+    let stabilityTimer = null;
     let best = null;
     let poorBest = null;
     let sawFix = false;
     let lastError = null;
+    const acceptedFixes = [];
 
     const cleanup = () => {
       if (watchId !== null && typeof geolocation.clearWatch === 'function') {
         try { geolocation.clearWatch(watchId); } catch { /* ignore */ }
       }
       if (timer !== null) clearTimeout(timer);
+      if (stabilityTimer !== null) clearTimeout(stabilityTimer);
       cfg.signal?.removeEventListener?.('abort', onAbort);
     };
     const onAbort = () => finish(new GpsCaptureError('cancelled', 'Location capture was cancelled.'));
@@ -164,12 +177,20 @@ export function captureBestPosition(options = {}, geolocation = globalThis.navig
         return;
       }
       const quality = best.accuracy <= cfg.targetAccuracyM ? 'good' : 'acceptable';
+      const spreadMeters = acceptedFixes.length >= 2
+        ? Math.max(...acceptedFixes.map((f) => haversineMeters(f, best)))
+        : 0;
+      const stabilityWarning = spreadMeters > 15
+        ? `GPS position varied by about ${Math.round(spreadMeters)} m during capture. Review the pin carefully before saving.`
+        : '';
+      const accuracyWarning = quality === 'acceptable'
+        ? `GPS accuracy is ±${Math.round(best.accuracy)} m, above the preferred ${cfg.targetAccuracyM} m. Review the pin before saving.`
+        : '';
       resolve({
         fix: best,
         quality,
-        warning: quality === 'acceptable'
-          ? `GPS accuracy is ±${Math.round(best.accuracy)} m, above the preferred ${cfg.targetAccuracyM} m. Review the pin before saving.`
-          : '',
+        spreadMeters,
+        warning: [accuracyWarning, stabilityWarning].filter(Boolean).join(' '),
       });
     }
 
@@ -190,9 +211,18 @@ export function captureBestPosition(options = {}, geolocation = globalThis.navig
             return;
           }
           sawFix = true;
+          acceptedFixes.push(fix);
           best = selectBestFix(best, fix);
           lastError = null;
-          if (best && best.accuracy <= cfg.targetAccuracyM) finish();
+          if (best && best.accuracy <= cfg.targetAccuracyM) {
+            if (stabilityTimer === null) {
+              if (cfg.stabilityWindowMs <= 0) finish();
+              else stabilityTimer = setTimeout(() => finish(), cfg.stabilityWindowMs);
+            } else {
+              clearTimeout(stabilityTimer);
+              stabilityTimer = setTimeout(() => finish(), cfg.stabilityWindowMs);
+            }
+          }
         },
         (err) => {
           if (err?.code === 1) {
@@ -214,4 +244,15 @@ export function captureBestPosition(options = {}, geolocation = globalThis.navig
     // `sawFix` is kept for diagnostics but acceptance is based on validation, not count.
     void sawFix;
   });
+}
+
+/** Coarse, honest confidence classification for a single GPS fix. */
+export function gpsConfidence(fix, limits = CAPTURE_LIMITS) {
+  if (!fix || !Number.isFinite(fix.latitude) || !Number.isFinite(fix.longitude)) return 'unavailable';
+  if (!Number.isFinite(fix.accuracy)) return 'unavailable';
+  const now = Date.now();
+  if (Number.isFinite(fix.timestamp) && Math.abs(now - fix.timestamp) > (limits.maxAgeMs || 15000)) return 'stale';
+  if (fix.accuracy > (limits.maxAccuracyM || 30)) return 'low';
+  if (fix.accuracy <= (limits.targetAccuracyM || 20)) return 'high';
+  return 'moderate';
 }
